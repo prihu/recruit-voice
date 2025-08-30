@@ -2,3 +2,6 @@ project_id = "yfuroouzxmxlvkwsmtny"
 
 [functions.elevenlabs-voice]
 verify_jwt = true
+
+[functions.process-scheduled-calls]
+verify_jwt = false

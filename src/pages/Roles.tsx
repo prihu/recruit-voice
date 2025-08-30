@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,8 @@ import {
   Edit,
   Copy,
   MoreVertical,
-  FileText
+  FileText,
+  Mic
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -23,12 +24,67 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { mockRoles } from '@/lib/mockData';
+import { supabase } from '@/integrations/supabase/client';
 import { formatDistanceToNow } from 'date-fns';
+import { toast } from '@/hooks/use-toast';
 
 export default function Roles() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [roles] = useState(mockRoles);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchRoles();
+  }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!member) return;
+
+      const { data, error } = await supabase
+        .from('roles')
+        .select(`
+          *,
+          screens:screens(count)
+        `)
+        .eq('organization_id', member.organization_id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const rolesWithCount = data?.map(role => ({
+        ...role,
+        screeningsCount: role.screens?.[0]?.count || 0,
+        salaryBand: role.salary_min && role.salary_max ? {
+          min: role.salary_min,
+          max: role.salary_max,
+          currency: role.salary_currency || 'INR'
+        } : null,
+        createdAt: new Date(role.created_at),
+        updatedAt: new Date(role.updated_at)
+      })) || [];
+
+      setRoles(rolesWithCount);
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load roles',
+        variant: 'destructive'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredRoles = roles.filter(role =>
     role.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -84,9 +140,17 @@ export default function Roles() {
                 <div className="flex justify-between items-start">
                   <div className="space-y-1">
                     <CardTitle className="line-clamp-1">{role.title}</CardTitle>
-                    <CardDescription className="flex items-center gap-1 text-sm">
-                      <MapPin className="w-3 h-3" />
-                      {role.location}
+                    <CardDescription className="space-y-1">
+                      <span className="flex items-center gap-1 text-sm">
+                        <MapPin className="w-3 h-3" />
+                        {role.location}
+                      </span>
+                      {role.voice_agent_id && (
+                        <span className="flex items-center gap-1 text-sm text-success">
+                          <Mic className="w-3 h-3" />
+                          Voice Enabled
+                        </span>
+                      )}
                     </CardDescription>
                   </div>
                   <DropdownMenu>
@@ -132,12 +196,17 @@ export default function Roles() {
                 <div className="pt-3 border-t space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Questions</span>
-                    <span className="font-medium">{role.questions.length}</span>
+                    <span className="font-medium">{role.questions?.length || 0}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">FAQ Entries</span>
-                    <span className="font-medium">{role.faq.length}</span>
+                    <span className="font-medium">{role.faq?.length || 0}</span>
                   </div>
+                  {!role.voice_agent_id && (
+                    <div className="text-xs text-warning bg-warning/10 rounded px-2 py-1 text-center">
+                      Voice agent not configured
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between pt-3 border-t">
@@ -156,8 +225,19 @@ export default function Roles() {
           ))}
         </div>
 
+        {/* Loading State */}
+        {loading && (
+          <Card className="p-12 text-center">
+            <div className="animate-pulse">
+              <div className="mx-auto w-12 h-12 rounded-full bg-muted mb-4" />
+              <div className="h-4 bg-muted rounded w-32 mx-auto mb-2" />
+              <div className="h-3 bg-muted rounded w-48 mx-auto" />
+            </div>
+          </Card>
+        )}
+
         {/* Empty State */}
-        {filteredRoles.length === 0 && (
+        {!loading && filteredRoles.length === 0 && (
           <Card className="p-12 text-center">
             <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-4">
               <FileText className="w-6 h-6 text-muted-foreground" />

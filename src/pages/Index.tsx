@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -17,8 +18,113 @@ import {
   Shield
 } from 'lucide-react';
 import { CallMonitor } from '@/components/CallMonitor';
+import { supabase } from '@/integrations/supabase/client';
+import type { Screen } from '@/types';
 
 export default function Index() {
+  const [stats, setStats] = useState({
+    activeRoles: 0,
+    totalScreens: 0,
+    pendingScreens: 0,
+    passRate: 0,
+    timeSaved: 0,
+    recentActivity: [] as any[]
+  });
+
+  useEffect(() => {
+    fetchAnalytics();
+    fetchRecentActivity();
+  }, []);
+
+  const fetchAnalytics = async () => {
+    const orgId = await getUserOrganization();
+    if (!orgId) return;
+
+    // Fetch active roles count
+    const { count: rolesCount } = await supabase
+      .from('roles')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('status', 'active');
+
+    // Fetch screens stats
+    const { data: screensData, count: totalScreens } = await supabase
+      .from('screens')
+      .select('status, outcome, duration_seconds', { count: 'exact' })
+      .eq('organization_id', orgId);
+
+    const pendingScreens = screensData?.filter(s => s.status === 'pending' || s.status === 'scheduled').length || 0;
+    const passedScreens = screensData?.filter(s => s.outcome === 'pass').length || 0;
+    const completedScreens = screensData?.filter(s => s.status === 'completed').length || 0;
+    const passRate = completedScreens > 0 ? Math.round((passedScreens / completedScreens) * 100) : 0;
+
+    // Calculate time saved (assuming 15 min per screen)
+    const timeSaved = Math.round((totalScreens || 0) * 0.25); // 15 minutes = 0.25 hours
+
+    setStats({
+      activeRoles: rolesCount || 0,
+      totalScreens: totalScreens || 0,
+      pendingScreens,
+      passRate,
+      timeSaved,
+      recentActivity: []
+    });
+  };
+
+  const fetchRecentActivity = async () => {
+    const orgId = await getUserOrganization();
+    if (!orgId) return;
+
+    const { data } = await supabase
+      .from('screens')
+      .select(`
+        id,
+        status,
+        outcome,
+        created_at,
+        candidate:candidates(name),
+        role:roles(title)
+      `)
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (data) {
+      const activities = data.map(screen => ({
+        name: screen.candidate?.name || 'Unknown',
+        role: screen.role?.title || 'Unknown Role',
+        status: screen.status,
+        outcome: screen.outcome,
+        time: getRelativeTime(screen.created_at)
+      }));
+      
+      setStats(prev => ({ ...prev, recentActivity: activities }));
+    }
+  };
+
+  const getUserOrganization = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.id)
+      .single();
+
+    return data?.organization_id;
+  };
+
+  const getRelativeTime = (timestamp: string) => {
+    const diff = Date.now() - new Date(timestamp).getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
+    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    return 'Just now';
+  };
+
   return (
     <AppLayout>
       <div className="space-y-8">
@@ -60,10 +166,10 @@ export default function Index() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Active Roles</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">12</div>
+              <div className="text-2xl font-bold">{stats.activeRoles}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 <TrendingUp className="w-3 h-3 inline mr-1" />
-                +3 this week
+                Currently active
               </p>
             </CardContent>
           </Card>
@@ -72,10 +178,10 @@ export default function Index() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Screens</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">248</div>
+              <div className="text-2xl font-bold">{stats.totalScreens}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 <Clock className="w-3 h-3 inline mr-1" />
-                15 pending
+                {stats.pendingScreens} pending
               </p>
             </CardContent>
           </Card>
@@ -84,10 +190,10 @@ export default function Index() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Pass Rate</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">68%</div>
+              <div className="text-2xl font-bold">{stats.passRate}%</div>
               <p className="text-xs text-success mt-1">
                 <CheckCircle className="w-3 h-3 inline mr-1" />
-                Above average
+                {stats.passRate > 60 ? 'Above average' : 'Below average'}
               </p>
             </CardContent>
           </Card>
@@ -96,10 +202,10 @@ export default function Index() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Time Saved</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">124h</div>
+              <div className="text-2xl font-bold">{stats.timeSaved}h</div>
               <p className="text-xs text-muted-foreground mt-1">
                 <Zap className="w-3 h-3 inline mr-1" />
-                This month
+                Total saved
               </p>
             </CardContent>
           </Card>
@@ -253,11 +359,7 @@ export default function Index() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {[
-                { name: 'Rajesh Kumar', role: 'Senior Python Engineer', status: 'completed', time: '2 hours ago', outcome: 'pass' },
-                { name: 'Priya Sharma', role: 'Frontend Developer', status: 'in_progress', time: '4 hours ago' },
-                { name: 'Amit Patel', role: 'Senior Python Engineer', status: 'completed', time: '1 day ago', outcome: 'fail' },
-              ].map((activity, index) => (
+              {stats.recentActivity.length > 0 ? stats.recentActivity.map((activity, index) => (
                 <div key={index} className="flex items-center justify-between p-3 rounded-lg hover:bg-card-hover transition-colors">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground text-sm font-medium">
@@ -282,7 +384,9 @@ export default function Index() {
                     <span className="text-sm text-muted-foreground">{activity.time}</span>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <p className="text-muted-foreground text-center py-4">No recent activity</p>
+              )}
             </div>
           </CardContent>
         </Card>
