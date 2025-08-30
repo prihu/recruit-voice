@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -30,17 +30,103 @@ import {
   AlertCircle,
   PlayCircle,
   Download,
-  BarChart3
+  BarChart3,
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
-import { mockScreens } from '@/lib/mockData';
 import { formatDistanceToNow } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
+
+interface Screen {
+  id: string;
+  status: string;
+  attempts: number;
+  score: number | null;
+  outcome: string | null;
+  screening_type: string;
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  ai_summary: string | null;
+  candidate: {
+    id: string;
+    name: string;
+    phone: string;
+    email: string;
+  } | null;
+  role: {
+    id: string;
+    title: string;
+    location: string;
+    call_window: any;
+  } | null;
+}
 
 export default function Screens() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [outcomeFilter, setOutcomeFilter] = useState('all');
+  const [screens, setScreens] = useState<Screen[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const filteredScreens = mockScreens.filter(screen => {
+  const fetchScreens = async (showLoader = true) => {
+    if (showLoader) setLoading(true);
+    else setRefreshing(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('screens')
+        .select(`
+          *,
+          candidate:candidates(id, name, phone, email),
+          role:roles(id, title, location, call_window)
+        `)
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+      setScreens(data || []);
+    } catch (error: any) {
+      console.error('Error fetching screens:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load screening sessions",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchScreens();
+
+    // Set up realtime subscription
+    const channel = supabase
+      .channel('screens-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'screens'
+        },
+        () => {
+          fetchScreens(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const filteredScreens = screens.filter(screen => {
     const matchesSearch = 
       screen.candidate?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       screen.role?.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -50,6 +136,13 @@ export default function Screens() {
 
     return matchesSearch && matchesStatus && matchesOutcome;
   });
+
+  const stats = {
+    total: screens.length,
+    inProgress: screens.filter(s => s.status === 'in_progress').length,
+    passRate: screens.filter(s => s.outcome === 'pass').length / screens.filter(s => s.outcome).length * 100 || 0,
+    avgScore: screens.reduce((acc, s) => acc + (s.score || 0), 0) / screens.filter(s => s.score).length || 0
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -84,18 +177,30 @@ export default function Screens() {
     }
   };
 
-  const getOutcomeColor = (outcome?: string) => {
+  const getOutcomeColor = (outcome?: string | null) => {
     switch (outcome) {
       case 'pass':
         return 'bg-success text-success-foreground';
       case 'fail':
         return 'bg-destructive text-destructive-foreground';
+      case 'maybe':
+        return 'bg-warning text-warning-foreground';
       case 'incomplete':
         return 'bg-muted text-muted-foreground';
       default:
         return 'bg-secondary text-secondary-foreground';
     }
   };
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-96">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -109,14 +214,28 @@ export default function Screens() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => fetchScreens(false)}
+              disabled={refreshing}
+            >
+              {refreshing ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Refresh
+            </Button>
             <Button variant="outline">
               <Download className="w-4 h-4 mr-2" />
               Export
             </Button>
-            <Button className="bg-gradient-primary border-0">
-              <Phone className="w-4 h-4 mr-2" />
-              Launch Screens
-            </Button>
+            <Link to="/roles">
+              <Button className="bg-gradient-primary border-0">
+                <Phone className="w-4 h-4 mr-2" />
+                Launch Screens
+              </Button>
+            </Link>
           </div>
         </div>
 
@@ -126,7 +245,7 @@ export default function Screens() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Screens</p>
-                <p className="text-2xl font-bold">{mockScreens.length}</p>
+                <p className="text-2xl font-bold">{stats.total}</p>
               </div>
               <BarChart3 className="w-8 h-8 text-primary" />
             </div>
@@ -135,9 +254,7 @@ export default function Screens() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">In Progress</p>
-                <p className="text-2xl font-bold">
-                  {mockScreens.filter(s => s.status === 'in_progress').length}
-                </p>
+                <p className="text-2xl font-bold">{stats.inProgress}</p>
               </div>
               <PlayCircle className="w-8 h-8 text-warning" />
             </div>
@@ -147,7 +264,7 @@ export default function Screens() {
               <div>
                 <p className="text-sm text-muted-foreground">Pass Rate</p>
                 <p className="text-2xl font-bold">
-                  {Math.round((mockScreens.filter(s => s.outcome === 'pass').length / mockScreens.filter(s => s.outcome).length) * 100)}%
+                  {Math.round(stats.passRate)}%
                 </p>
               </div>
               <CheckCircle className="w-8 h-8 text-success" />
@@ -158,11 +275,11 @@ export default function Screens() {
               <div>
                 <p className="text-sm text-muted-foreground">Avg Score</p>
                 <p className="text-2xl font-bold">
-                  {Math.round(mockScreens.reduce((acc, s) => acc + (s.score || 0), 0) / mockScreens.filter(s => s.score).length)}
+                  {Math.round(stats.avgScore)}
                 </p>
               </div>
               <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
-                85
+                {Math.round(stats.avgScore)}
               </div>
             </div>
           </Card>
@@ -201,6 +318,7 @@ export default function Screens() {
               <SelectItem value="all">All Outcomes</SelectItem>
               <SelectItem value="pass">Pass</SelectItem>
               <SelectItem value="fail">Fail</SelectItem>
+              <SelectItem value="maybe">Maybe</SelectItem>
               <SelectItem value="incomplete">Incomplete</SelectItem>
             </SelectContent>
           </Select>
@@ -226,14 +344,14 @@ export default function Screens() {
                 <TableRow key={screen.id} className="hover:bg-card-hover">
                   <TableCell>
                     <div>
-                      <p className="font-medium">{screen.candidate?.name}</p>
-                      <p className="text-sm text-muted-foreground">{screen.candidate?.phone}</p>
+                      <p className="font-medium">{screen.candidate?.name || 'Unknown'}</p>
+                      <p className="text-sm text-muted-foreground">{screen.candidate?.phone || 'No phone'}</p>
                     </div>
                   </TableCell>
                   <TableCell>
                     <div>
-                      <p className="font-medium">{screen.role?.title}</p>
-                      <p className="text-sm text-muted-foreground">{screen.role?.location}</p>
+                      <p className="font-medium">{screen.role?.title || 'Unknown Role'}</p>
+                      <p className="text-sm text-muted-foreground">{screen.role?.location || 'No location'}</p>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -244,13 +362,13 @@ export default function Screens() {
                   </TableCell>
                   <TableCell>
                     <span className="font-medium">{screen.attempts}</span>
-                    <span className="text-muted-foreground">/{screen.role?.callWindow.maxAttempts || 3}</span>
+                    <span className="text-muted-foreground">/{screen.role?.call_window?.maxAttempts || 3}</span>
                   </TableCell>
                   <TableCell>
-                    {screen.score ? (
+                    {screen.score !== null ? (
                       <div className="flex items-center gap-2">
                         <div className="w-12 h-12 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-bold">
-                          {screen.score}
+                          {Math.round(screen.score)}
                         </div>
                       </div>
                     ) : (
@@ -268,7 +386,7 @@ export default function Screens() {
                   </TableCell>
                   <TableCell>
                     <span className="text-sm text-muted-foreground">
-                      {formatDistanceToNow(screen.updatedAt, { addSuffix: true })}
+                      {formatDistanceToNow(new Date(screen.updated_at), { addSuffix: true })}
                     </span>
                   </TableCell>
                   <TableCell>
@@ -295,10 +413,12 @@ export default function Screens() {
                 : 'Launch your first screening session to get started'}
             </p>
             {!searchQuery && statusFilter === 'all' && outcomeFilter === 'all' && (
-              <Button className="bg-gradient-primary border-0">
-                <Phone className="w-4 h-4 mr-2" />
-                Launch First Screen
-              </Button>
+              <Link to="/roles">
+                <Button className="bg-gradient-primary border-0">
+                  <Phone className="w-4 h-4 mr-2" />
+                  Launch First Screen
+                </Button>
+              </Link>
             )}
           </Card>
         )}

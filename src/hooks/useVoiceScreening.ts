@@ -175,7 +175,7 @@ Important:
           prompt: generatePrompt(role, candidate),
         },
         firstMessage: `Hello ${candidate.name}, I'm here to conduct your phone screening for the ${role.title} position. Before we begin, I need your verbal consent to record this conversation for evaluation purposes. Do you agree to proceed?`,
-        language: candidate.language || "en",
+        language: (candidate.language || "en") as any,
       }
     }
   });
@@ -202,8 +202,8 @@ Important:
 
       // Start the conversation
       await conversation.startSession({ 
-        url: signedUrl 
-      });
+        agentId: signedUrl 
+      } as any);
 
       setIsLoading(false);
 
