@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -22,17 +22,154 @@ import {
   ThumbsDown,
   Send,
   FileJson,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Loader2,
+  PhoneCall
 } from 'lucide-react';
-import { mockScreens } from '@/lib/mockData';
 import { formatDistanceToNow, format } from 'date-fns';
 import { VoiceScreening } from '@/components/VoiceScreening';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
+import { Screen, Role, Candidate, CallWindow, TranscriptEntry, ScreeningQuestion, FAQEntry, ScoringRule } from '@/types';
 
 export default function ScreenDetail() {
   const { id } = useParams();
-  const [screen] = useState(mockScreens.find(s => s.id === id));
+  const [screen, setScreen] = useState<Screen | null>(null);
+  const [role, setRole] = useState<Role | null>(null);
+  const [candidate, setCandidate] = useState<Candidate | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (!screen) {
+  useEffect(() => {
+    fetchScreenData();
+  }, [id]);
+
+  const fetchScreenData = async () => {
+    if (!id) return;
+
+    setIsLoading(true);
+    try {
+      // Fetch screen data
+      const { data: screenData, error: screenError } = await supabase
+        .from('screens')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (screenError) throw screenError;
+
+      // Fetch role data
+      const { data: roleData, error: roleError } = await supabase
+        .from('roles')
+        .select('*')
+        .eq('id', screenData.role_id)
+        .single();
+
+      if (roleError) throw roleError;
+
+      // Fetch candidate data
+      const { data: candidateData, error: candidateError } = await supabase
+        .from('candidates')
+        .select('*')
+        .eq('id', screenData.candidate_id)
+        .single();
+
+      if (candidateError) throw candidateError;
+
+      // Transform the data to match our types
+      const transformedScreen: Screen = {
+        id: screenData.id,
+        roleId: screenData.role_id,
+        candidateId: screenData.candidate_id,
+        status: screenData.status as Screen['status'],
+        attempts: screenData.attempts,
+        transcript: Array.isArray(screenData.transcript) ? (screenData.transcript as any[]) : [],
+        audioUrl: screenData.audio_url,
+        answers: screenData.answers as Record<string, any> || {},
+        score: screenData.score,
+        outcome: screenData.outcome as Screen['outcome'],
+        reasons: screenData.reasons,
+        createdAt: new Date(screenData.created_at),
+        updatedAt: new Date(screenData.updated_at),
+        scheduledAt: screenData.scheduled_at ? new Date(screenData.scheduled_at) : undefined
+      };
+
+      const transformedRole: Role = {
+        id: roleData.id,
+        title: roleData.title,
+        location: roleData.location,
+        salaryBand: roleData.salary_min && roleData.salary_max ? {
+          min: roleData.salary_min,
+          max: roleData.salary_max,
+          currency: roleData.salary_currency
+        } : undefined,
+        summary: roleData.summary,
+        questions: Array.isArray(roleData.questions) ? (roleData.questions as any[]) : [],
+        faq: Array.isArray(roleData.faq) ? (roleData.faq as any[]) : [],
+        rules: Array.isArray(roleData.rules) ? (roleData.rules as any[]) : [],
+        callWindow: typeof roleData.call_window === 'object' && roleData.call_window !== null 
+          ? (roleData.call_window as any)
+          : {
+              timezone: 'UTC',
+              allowedHours: { start: '09:00', end: '17:00' },
+              allowedDays: [1, 2, 3, 4, 5],
+              maxAttempts: 3,
+              attemptSpacing: 30,
+              smsReminder: false,
+              emailReminder: false
+            },
+        status: roleData.status as Role['status'],
+        createdAt: new Date(roleData.created_at),
+        updatedAt: new Date(roleData.updated_at)
+      };
+
+      const transformedCandidate: Candidate = {
+        id: candidateData.id,
+        externalId: candidateData.external_id,
+        name: candidateData.name,
+        phone: candidateData.phone,
+        email: candidateData.email,
+        skills: candidateData.skills,
+        expYears: candidateData.exp_years,
+        locationPref: candidateData.location_pref,
+        salaryExpectation: candidateData.salary_expectation,
+        language: candidateData.language,
+        createdAt: new Date(candidateData.created_at)
+      };
+
+      setScreen(transformedScreen);
+      setRole(transformedRole);
+      setCandidate(transformedCandidate);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load screening data",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVoiceScreeningComplete = async (data: any) => {
+    // Refresh the screen data after voice screening completes
+    await fetchScreenData();
+    toast({
+      title: "Screening Complete",
+      description: "The voice screening has been completed successfully",
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (!screen || !role || !candidate) {
     return (
       <AppLayout>
         <div className="text-center py-12">
@@ -183,12 +320,26 @@ export default function ScreenDetail() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="answers">
-          <TabsList className="grid w-full grid-cols-3 max-w-md">
-            <TabsTrigger value="answers">Key Answers</TabsTrigger>
+        <Tabs defaultValue="voice">
+          <TabsList className="grid w-full grid-cols-4 max-w-lg">
+            <TabsTrigger value="voice">
+              <PhoneCall className="w-4 h-4 mr-1" />
+              Voice
+            </TabsTrigger>
+            <TabsTrigger value="answers">Answers</TabsTrigger>
             <TabsTrigger value="transcript">Transcript</TabsTrigger>
             <TabsTrigger value="reasons">Analysis</TabsTrigger>
           </TabsList>
+
+          {/* Voice Interview Tab */}
+          <TabsContent value="voice" className="space-y-4">
+            <VoiceScreening
+              screenId={screen.id}
+              role={role}
+              candidate={candidate}
+              onComplete={handleVoiceScreeningComplete}
+            />
+          </TabsContent>
 
           {/* Key Answers Tab */}
           <TabsContent value="answers" className="space-y-4">

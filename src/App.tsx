@@ -9,6 +9,7 @@ import RoleDetail from "./pages/RoleDetail";
 import CandidateImport from "./pages/CandidateImport";
 import Screens from "./pages/Screens";
 import ScreenDetail from "./pages/ScreenDetail";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
           <Route path="/candidates/import" element={<CandidateImport />} />
           <Route path="/screens" element={<Screens />} />
           <Route path="/screens/:id" element={<ScreenDetail />} />
+          <Route path="/settings" element={<Settings />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
