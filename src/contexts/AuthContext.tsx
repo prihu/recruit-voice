@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Use a demo email and password for testing
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: 'demo@recruiterscreen.ai',
+        email: 'demo@example.com',
         password: 'DemoPassword123!'
       });
 
@@ -45,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // If demo user doesn't exist, create it
         if (error.message.includes('Invalid login credentials')) {
           const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email: 'demo@recruiterscreen.ai',
+            email: 'demo@example.com',
             password: 'DemoPassword123!',
             options: {
               data: {
