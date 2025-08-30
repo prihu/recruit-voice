@@ -35,45 +35,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setLoading(true);
       
-      // Use a demo email and password for testing
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: 'demo@example.com',
-        password: 'DemoPassword123!'
+      // Call edge function to provision and sign in demo user
+      const { data, error } = await supabase.functions.invoke('provision-demo-user', {
+        method: 'POST'
       });
 
       if (error) {
-        // If demo user doesn't exist, create it
-        if (error.message.includes('Invalid login credentials')) {
-          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email: 'demo@example.com',
-            password: 'DemoPassword123!',
-            options: {
-              data: {
-                full_name: 'Demo Recruiter'
-              }
-            }
-          });
+        console.error('Error provisioning demo user:', error);
+        toast({
+          title: "Authentication error",
+          description: "Failed to start demo. Please try again.",
+          variant: "destructive"
+        });
+        return;
+      }
 
-          if (signUpError) throw signUpError;
-          
-          toast({
-            title: "Demo account created",
-            description: "You can now explore all features"
-          });
-        } else {
-          throw error;
-        }
-      } else {
+      if (data?.session) {
+        // Set the session manually
+        await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token
+        });
+        
+        // Update local state
+        setUser(data.user);
+        
         toast({
           title: "Welcome to RecruiterScreen AI",
           description: "Explore the demo with sample data"
         });
       }
     } catch (error: any) {
-      console.error('Auth error:', error);
+      console.error('Unexpected error during demo sign in:', error);
       toast({
         title: "Authentication error",
-        description: error.message,
+        description: error.message || "An unexpected error occurred",
         variant: "destructive"
       });
     } finally {
