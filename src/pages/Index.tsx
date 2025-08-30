@@ -16,6 +16,7 @@ import {
   Globe,
   Shield
 } from 'lucide-react';
+import { CallMonitor } from '@/components/CallMonitor';
 
 export default function Index() {
   return (
@@ -240,6 +241,9 @@ export default function Index() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Call Monitor */}
+        <CallMonitor />
 
         {/* Recent Activity */}
         <Card>

@@ -134,6 +134,164 @@ serve(async (req) => {
         );
       }
 
+      case 'initiate-phone-call': {
+        const { screenId, phoneNumber, agentId, candidateName } = await req.json();
+        
+        console.log('Initiating phone call to:', phoneNumber, 'for screen:', screenId);
+
+        // Update screen status to in_progress
+        await supabase
+          .from('screens')
+          .update({ 
+            status: 'in_progress',
+            started_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', screenId);
+
+        // Initiate phone call via ElevenLabs
+        const response = await fetch(
+          'https://api.elevenlabs.io/v1/convai/conversations/phone-call',
+          {
+            method: 'POST',
+            headers: {
+              'xi-api-key': ELEVENLABS_API_KEY,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              agent_id: agentId,
+              customer: {
+                number: phoneNumber,
+                name: candidateName,
+              },
+              webhook_url: `${SUPABASE_URL}/functions/v1/elevenlabs-voice/phone-webhook`,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const error = await response.text();
+          console.error('ElevenLabs phone call API error:', error);
+          
+          // Update screen status to failed
+          await supabase
+            .from('screens')
+            .update({ 
+              status: 'failed',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', screenId);
+            
+          throw new Error(`Failed to initiate phone call: ${error}`);
+        }
+
+        const data = await response.json();
+        console.log('Phone call initiated successfully:', data);
+
+        // Store the phone conversation ID
+        await supabase
+          .from('screens')
+          .update({ 
+            session_id: data.conversation_id,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', screenId);
+
+        return new Response(
+          JSON.stringify({ 
+            success: true,
+            conversationId: data.conversation_id,
+            callId: data.call_id
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      case 'phone-webhook': {
+        const webhookData = await req.json();
+        
+        console.log('Received phone webhook:', webhookData);
+
+        // Handle different webhook events
+        if (webhookData.type === 'call.completed') {
+          const { conversation_id, duration, recording_url, transcript } = webhookData;
+          
+          // Update screen with call results
+          await supabase
+            .from('screens')
+            .update({
+              status: 'completed',
+              duration_seconds: duration,
+              recording_url: recording_url,
+              transcript: transcript,
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('session_id', conversation_id);
+            
+          console.log('Call completed, screen updated');
+        } else if (webhookData.type === 'call.failed') {
+          const { conversation_id, error_message } = webhookData;
+          
+          await supabase
+            .from('screens')
+            .update({
+              status: 'failed',
+              updated_at: new Date().toISOString()
+            })
+            .eq('session_id', conversation_id);
+            
+          console.log('Call failed:', error_message);
+        }
+
+        return new Response(
+          JSON.stringify({ received: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      case 'schedule-call': {
+        const { screenId, scheduledTime } = await req.json();
+        
+        console.log('Scheduling call for screen:', screenId, 'at:', scheduledTime);
+
+        // Create scheduled call record
+        const { error } = await supabase
+          .from('scheduled_calls')
+          .insert({
+            screen_id: screenId,
+            scheduled_time: scheduledTime,
+            status: 'pending',
+            organization_id: (await supabase
+              .from('screens')
+              .select('organization_id')
+              .eq('id', screenId)
+              .single()).data?.organization_id
+          });
+
+        if (error) {
+          console.error('Error scheduling call:', error);
+          throw error;
+        }
+
+        // Update screen status
+        await supabase
+          .from('screens')
+          .update({ 
+            status: 'scheduled',
+            scheduled_at: scheduledTime,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', screenId);
+
+        console.log('Call scheduled successfully');
+
+        return new Response(
+          JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       default:
         return new Response(
           JSON.stringify({ error: 'Unknown endpoint' }),

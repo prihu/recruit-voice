@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +32,8 @@ import {
   ArrowRight,
   Loader2
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { useToast } from '@/components/ui/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function CandidateImport() {
   const [file, setFile] = useState<File | null>(null);
@@ -39,44 +41,169 @@ export default function CandidateImport() {
   const [mappingStep, setMappingStep] = useState(false);
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [selectedRole, setSelectedRole] = useState<string>('');
+  const [roles, setRoles] = useState<any[]>([]);
+  const { toast } = useToast();
+  const navigate = useNavigate();
 
   const systemFields = [
     { value: 'name', label: 'Name (Required)' },
-    { value: 'phone', label: 'Phone (Required)' },
+    { value: 'phone', label: 'Phone Number' },
     { value: 'email', label: 'Email (Required)' },
     { value: 'external_id', label: 'External ID' },
-    { value: 'skills', label: 'Skills' },
+    { value: 'skills', label: 'Skills (semicolon separated)' },
     { value: 'exp_years', label: 'Experience Years' },
     { value: 'location_pref', label: 'Location Preference' },
     { value: 'salary_expectation', label: 'Salary Expectation' },
     { value: 'language', label: 'Language' }
   ];
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (uploadedFile && uploadedFile.type === 'text/csv') {
       setFile(uploadedFile);
-      // Simulate CSV parsing
+      
+      // Parse CSV file
+      const text = await uploadedFile.text();
+      const lines = text.split('\n').filter(line => line.trim());
+      const headers = lines[0].split(',').map(h => h.trim());
+      setCsvHeaders(headers);
+      
+      // Parse first few rows for preview
+      const preview = [];
+      for (let i = 1; i < Math.min(4, lines.length); i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        const row: any = {};
+        headers.forEach((header, index) => {
+          row[header] = values[index] || '';
+        });
+        preview.push(row);
+      }
+      
+      setPreviewData(preview);
       setMappingStep(true);
-      setPreviewData([
-        { col1: 'John Doe', col2: 'john@example.com', col3: '+1234567890', col4: '5', col5: 'Python, Django' },
-        { col1: 'Jane Smith', col2: 'jane@example.com', col3: '+1234567891', col4: '3', col5: 'JavaScript, React' },
-        { col1: 'Bob Johnson', col2: 'bob@example.com', col3: '+1234567892', col4: '7', col5: 'Java, Spring' }
-      ]);
+      
+      // Fetch roles
+      const { data: userData } = await supabase.auth.getUser();
+      if (userData.user) {
+        const { data: orgData } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .eq('user_id', userData.user.id)
+          .single();
+
+        if (orgData) {
+          const { data: rolesData } = await supabase
+            .from('roles')
+            .select('*')
+            .eq('organization_id', orgData.organization_id);
+          
+          setRoles(rolesData || []);
+        }
+      }
     } else {
-      toast.error('Please upload a valid CSV file');
+      toast({
+        title: 'Invalid File',
+        description: 'Please upload a valid CSV file',
+        variant: 'destructive',
+      });
     }
   };
 
   const handleImport = async () => {
+    if (!file || !selectedRole) {
+      toast({
+        title: 'Missing Information',
+        description: 'Please select a role for screening',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsProcessing(true);
-    // Simulate import process
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    toast.success('Successfully imported 3 candidates');
-    setIsProcessing(false);
-    setFile(null);
-    setMappingStep(false);
-    setPreviewData([]);
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').filter(line => line.trim());
+      const headers = lines[0].split(',').map(h => h.trim());
+      
+      const candidates = [];
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        if (values.length === headers.length) {
+          const candidate: any = {};
+          headers.forEach((header, index) => {
+            const mappedField = columnMapping[header];
+            if (mappedField) {
+              if (mappedField === 'skills') {
+                candidate[mappedField] = values[index].split(';').map(s => s.trim());
+              } else if (mappedField === 'exp_years' || mappedField === 'salary_expectation') {
+                candidate[mappedField] = parseInt(values[index]) || 0;
+              } else {
+                candidate[mappedField] = values[index];
+              }
+            }
+          });
+          
+          // Only add if we have at least name and email
+          if (candidate.name && candidate.email) {
+            candidates.push(candidate);
+          }
+        }
+      }
+      
+      // Insert candidates into database
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) throw new Error('User not authenticated');
+
+      const { data: orgData } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', userData.user.id)
+        .single();
+
+      const candidatesWithUserId = candidates.map(c => ({
+        ...c,
+        user_id: userData.user.id,
+        organization_id: orgData?.organization_id,
+        phone: c.phone || null // Ensure phone field is included
+      }));
+      
+      const { error } = await supabase
+        .from('candidates')
+        .insert(candidatesWithUserId);
+      
+      if (error) throw error;
+      
+      toast({
+        title: 'Import Successful',
+        description: `Imported ${candidates.length} candidates successfully`,
+      });
+      
+      navigate('/screens');
+    } catch (error) {
+      console.error('Import error:', error);
+      toast({
+        title: 'Import Failed',
+        description: 'There was an error importing candidates',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const downloadTemplate = () => {
+    const template = 'name,email,phone,skills,exp_years,location_pref,salary_expectation\n' +
+      'John Doe,john@example.com,+1234567890,Python;Django;AWS,5,San Francisco,120000\n' +
+      'Jane Smith,jane@example.com,+1234567891,JavaScript;React;Node.js,3,New York,100000';
+    
+    const blob = new Blob([template], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'candidate_import_template.csv';
+    a.click();
   };
 
   return (
@@ -86,7 +213,7 @@ export default function CandidateImport() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Import Candidates</h1>
           <p className="text-muted-foreground mt-2">
-            Bulk import candidate data from CSV files or connect to your ATS
+            Bulk import candidate data from CSV files for phone screening
           </p>
         </div>
 
@@ -98,7 +225,7 @@ export default function CandidateImport() {
                 <FileSpreadsheet className="w-5 h-5" />
                 CSV Upload
               </CardTitle>
-              <CardDescription>Upload a CSV file with candidate information</CardDescription>
+              <CardDescription>Upload a CSV file with candidate information including phone numbers</CardDescription>
             </CardHeader>
             <CardContent>
               {!mappingStep ? (
@@ -122,7 +249,7 @@ export default function CandidateImport() {
                       </Badge>
                     )}
                   </div>
-                  <Button variant="outline" className="w-full">
+                  <Button variant="outline" className="w-full" onClick={downloadTemplate}>
                     <Download className="w-4 h-4 mr-2" />
                     Download Template CSV
                   </Button>
@@ -181,11 +308,28 @@ export default function CandidateImport() {
           <Card>
             <CardHeader>
               <CardTitle>Map CSV Columns</CardTitle>
-              <CardDescription>Match your CSV columns to candidate fields</CardDescription>
+              <CardDescription>Match your CSV columns to candidate fields and select role for screening</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Role Selection */}
+              <div className="space-y-2">
+                <Label>Select Role for Screening</Label>
+                <Select value={selectedRole} onValueChange={setSelectedRole}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a role..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map(role => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.title} - {role.location}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2">
-                {Object.keys(previewData[0] || {}).map((col) => (
+                {csvHeaders.map((col) => (
                   <div key={col} className="flex items-center gap-3">
                     <Badge variant="outline" className="min-w-[80px]">{col}</Badge>
                     <ArrowRight className="w-4 h-4 text-muted-foreground" />
@@ -208,10 +352,10 @@ export default function CandidateImport() {
               {/* Preview Table */}
               <div className="border rounded-lg overflow-hidden">
                 <Table>
-                  <TableCaption>Preview of first 3 rows</TableCaption>
+                  <TableCaption>Preview of first {previewData.length} rows</TableCaption>
                   <TableHeader>
                     <TableRow>
-                      {Object.keys(previewData[0] || {}).map((col) => (
+                      {csvHeaders.map((col) => (
                         <TableHead key={col}>
                           {columnMapping[col] || col}
                         </TableHead>
@@ -221,8 +365,8 @@ export default function CandidateImport() {
                   <TableBody>
                     {previewData.map((row, index) => (
                       <TableRow key={index}>
-                        {Object.values(row).map((value: any, idx) => (
-                          <TableCell key={idx}>{value}</TableCell>
+                        {csvHeaders.map((header) => (
+                          <TableCell key={header}>{row[header]}</TableCell>
                         ))}
                       </TableRow>
                     ))}
@@ -238,6 +382,8 @@ export default function CandidateImport() {
                     setMappingStep(false);
                     setFile(null);
                     setPreviewData([]);
+                    setCsvHeaders([]);
+                    setColumnMapping({});
                   }}
                 >
                   Cancel
@@ -248,7 +394,7 @@ export default function CandidateImport() {
                   </Badge>
                   <Button 
                     onClick={handleImport}
-                    disabled={isProcessing}
+                    disabled={isProcessing || !selectedRole}
                     className="bg-gradient-primary border-0"
                   >
                     {isProcessing ? (
@@ -268,71 +414,6 @@ export default function CandidateImport() {
             </CardContent>
           </Card>
         )}
-
-        {/* Import History */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Imports</CardTitle>
-            <CardDescription>Track your candidate import history</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Candidates</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell>2024-01-25</TableCell>
-                  <TableCell>candidates_batch1.csv</TableCell>
-                  <TableCell>45</TableCell>
-                  <TableCell>
-                    <Badge className="bg-success text-success-foreground">
-                      <Check className="w-3 h-3 mr-1" />
-                      Completed
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm">View</Button>
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>2024-01-23</TableCell>
-                  <TableCell>ats_sync</TableCell>
-                  <TableCell>12</TableCell>
-                  <TableCell>
-                    <Badge className="bg-success text-success-foreground">
-                      <Check className="w-3 h-3 mr-1" />
-                      Completed
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm">View</Button>
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>2024-01-20</TableCell>
-                  <TableCell>initial_candidates.csv</TableCell>
-                  <TableCell>28</TableCell>
-                  <TableCell>
-                    <Badge variant="destructive">
-                      <X className="w-3 h-3 mr-1" />
-                      Failed
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm">Retry</Button>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
       </div>
     </AppLayout>
   );
