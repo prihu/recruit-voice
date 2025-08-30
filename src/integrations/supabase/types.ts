@@ -14,7 +14,275 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      candidates: {
+        Row: {
+          created_at: string | null
+          email: string
+          exp_years: number | null
+          external_id: string | null
+          id: string
+          language: string | null
+          location_pref: string | null
+          name: string
+          phone: string
+          salary_expectation: number | null
+          skills: string[] | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          email: string
+          exp_years?: number | null
+          external_id?: string | null
+          id?: string
+          language?: string | null
+          location_pref?: string | null
+          name: string
+          phone: string
+          salary_expectation?: number | null
+          skills?: string[] | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          email?: string
+          exp_years?: number | null
+          external_id?: string | null
+          id?: string
+          language?: string | null
+          location_pref?: string | null
+          name?: string
+          phone?: string
+          salary_expectation?: number | null
+          skills?: string[] | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          company_name: string | null
+          created_at: string | null
+          full_name: string | null
+          id: string
+          role: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string | null
+          full_name?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string | null
+          full_name?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      roles: {
+        Row: {
+          call_window: Json | null
+          created_at: string | null
+          faq: Json | null
+          id: string
+          location: string
+          questions: Json | null
+          rules: Json | null
+          salary_currency: string | null
+          salary_max: number | null
+          salary_min: number | null
+          status: string | null
+          summary: string | null
+          title: string
+          updated_at: string | null
+          user_id: string
+          voice_agent_id: string | null
+          voice_enabled: boolean | null
+          voice_settings: Json | null
+        }
+        Insert: {
+          call_window?: Json | null
+          created_at?: string | null
+          faq?: Json | null
+          id?: string
+          location: string
+          questions?: Json | null
+          rules?: Json | null
+          salary_currency?: string | null
+          salary_max?: number | null
+          salary_min?: number | null
+          status?: string | null
+          summary?: string | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+          voice_agent_id?: string | null
+          voice_enabled?: boolean | null
+          voice_settings?: Json | null
+        }
+        Update: {
+          call_window?: Json | null
+          created_at?: string | null
+          faq?: Json | null
+          id?: string
+          location?: string
+          questions?: Json | null
+          rules?: Json | null
+          salary_currency?: string | null
+          salary_max?: number | null
+          salary_min?: number | null
+          status?: string | null
+          summary?: string | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+          voice_agent_id?: string | null
+          voice_enabled?: boolean | null
+          voice_settings?: Json | null
+        }
+        Relationships: []
+      }
+      screening_events: {
+        Row: {
+          event_data: Json | null
+          event_type: string
+          id: string
+          screen_id: string
+          timestamp: string | null
+        }
+        Insert: {
+          event_data?: Json | null
+          event_type: string
+          id?: string
+          screen_id: string
+          timestamp?: string | null
+        }
+        Update: {
+          event_data?: Json | null
+          event_type?: string
+          id?: string
+          screen_id?: string
+          timestamp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "screening_events_screen_id_fkey"
+            columns: ["screen_id"]
+            isOneToOne: false
+            referencedRelation: "screens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      screens: {
+        Row: {
+          ai_recommendations: Json | null
+          ai_summary: string | null
+          answers: Json | null
+          attempts: number | null
+          audio_url: string | null
+          candidate_id: string
+          completed_at: string | null
+          created_at: string | null
+          duration_seconds: number | null
+          id: string
+          outcome: string | null
+          reasons: string[] | null
+          recording_url: string | null
+          role_id: string
+          scheduled_at: string | null
+          score: number | null
+          screening_type: string | null
+          session_id: string | null
+          started_at: string | null
+          status: string | null
+          transcript: Json | null
+          updated_at: string | null
+          user_id: string
+          voice_analytics: Json | null
+        }
+        Insert: {
+          ai_recommendations?: Json | null
+          ai_summary?: string | null
+          answers?: Json | null
+          attempts?: number | null
+          audio_url?: string | null
+          candidate_id: string
+          completed_at?: string | null
+          created_at?: string | null
+          duration_seconds?: number | null
+          id?: string
+          outcome?: string | null
+          reasons?: string[] | null
+          recording_url?: string | null
+          role_id: string
+          scheduled_at?: string | null
+          score?: number | null
+          screening_type?: string | null
+          session_id?: string | null
+          started_at?: string | null
+          status?: string | null
+          transcript?: Json | null
+          updated_at?: string | null
+          user_id: string
+          voice_analytics?: Json | null
+        }
+        Update: {
+          ai_recommendations?: Json | null
+          ai_summary?: string | null
+          answers?: Json | null
+          attempts?: number | null
+          audio_url?: string | null
+          candidate_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          duration_seconds?: number | null
+          id?: string
+          outcome?: string | null
+          reasons?: string[] | null
+          recording_url?: string | null
+          role_id?: string
+          scheduled_at?: string | null
+          score?: number | null
+          screening_type?: string | null
+          session_id?: string | null
+          started_at?: string | null
+          status?: string | null
+          transcript?: Json | null
+          updated_at?: string | null
+          user_id?: string
+          voice_analytics?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "screens_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "screens_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
