@@ -24,8 +24,9 @@ export function useVoiceScreening({
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [isActive, setIsActive] = useState(false);
 
-  // Use the default agent ID from the environment or a fixed one
-  const agentId = 'agent_3301k3x4pgrre4nsv53xt1wz79r6';
+  // Get Agent ID with fallback to default
+  const DEFAULT_AGENT_ID = 'l4Z9P6hLLbN38pYqnm41';
+  const agentId = localStorage.getItem('elevenlabs_agent_id') || DEFAULT_AGENT_ID;
 
   const handleScreeningComplete = useCallback(async () => {
     if (!conversationId) return;
@@ -187,8 +188,7 @@ Important:
       // Request microphone permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Get signed URL from our edge function
-      const { data: { user } } = await supabase.auth.getUser();
+      // Get signed URL from our edge function with correct endpoint
       const response = await supabase.functions.invoke('elevenlabs-voice/get-signed-url', {
         body: { screenId, agentId }
       });

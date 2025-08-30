@@ -20,12 +20,13 @@ serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    const path = url.pathname.split('/').pop();
+    const pathSegments = url.pathname.split('/');
+    const endpoint = pathSegments[pathSegments.length - 1];
 
-    console.log('ElevenLabs Voice Function - Path:', path);
+    console.log('ElevenLabs Voice Function - Full path:', url.pathname, 'Endpoint:', endpoint);
 
     // Handle different endpoints
-    switch (path) {
+    switch (endpoint) {
       case 'get-signed-url': {
         const { screenId, agentId } = await req.json();
         

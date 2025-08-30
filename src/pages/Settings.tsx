@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,40 +11,47 @@ import { Settings2, Key, Volume2, TestTube, Check, X, Loader2 } from 'lucide-rea
 import { supabase } from '@/integrations/supabase/client';
 
 export default function Settings() {
+  // Default Agent ID for automatic voice functionality
+  const DEFAULT_AGENT_ID = 'l4Z9P6hLLbN38pYqnm41';
+  
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connected' | 'error'>('idle');
-  const [agentId, setAgentId] = useState('');
+  const [agentId, setAgentId] = useState(localStorage.getItem('elevenlabs_agent_id') || DEFAULT_AGENT_ID);
   const [isSaving, setIsSaving] = useState(false);
 
-  const testElevenLabsConnection = async () => {
-    if (!agentId) {
-      toast({
-        title: "Error",
-        description: "Please enter an ElevenLabs Agent ID",
-        variant: "destructive"
-      });
-      return;
+  // Save default Agent ID on mount if not already saved
+  useEffect(() => {
+    if (!localStorage.getItem('elevenlabs_agent_id')) {
+      localStorage.setItem('elevenlabs_agent_id', DEFAULT_AGENT_ID);
     }
+  }, []);
 
+  const testElevenLabsConnection = async () => {
+    const testAgentId = agentId || DEFAULT_AGENT_ID;
+    
     setIsTestingConnection(true);
     setConnectionStatus('idle');
 
     try {
-      // Test the connection by attempting to get a signed URL
-      const { data, error } = await supabase.functions.invoke('elevenlabs-voice', {
+      // Test the connection by attempting to get a signed URL with correct endpoint
+      const { data, error } = await supabase.functions.invoke('elevenlabs-voice/get-signed-url', {
         body: {
-          action: 'get-signed-url',
-          agentId: agentId
+          agentId: testAgentId,
+          screenId: 'test-connection'
         }
       });
 
       if (error) throw error;
 
-      setConnectionStatus('connected');
-      toast({
-        title: "Success",
-        description: "Successfully connected to ElevenLabs",
-      });
+      if (data?.signedUrl) {
+        setConnectionStatus('connected');
+        toast({
+          title: "Success",
+          description: "Successfully connected to ElevenLabs - Voice AI is ready",
+        });
+      } else {
+        throw new Error('Invalid response from ElevenLabs');
+      }
     } catch (error) {
       setConnectionStatus('error');
       toast({
@@ -121,19 +128,19 @@ export default function Settings() {
                   <Label htmlFor="agent-id">Agent ID</Label>
                   <Input
                     id="agent-id"
-                    placeholder="Enter your ElevenLabs Agent ID"
+                    placeholder={`Default: ${DEFAULT_AGENT_ID}`}
                     value={agentId}
                     onChange={(e) => setAgentId(e.target.value)}
                   />
                   <p className="text-sm text-muted-foreground">
-                    You can find your Agent ID in the ElevenLabs dashboard
+                    Using default Agent ID for voice AI. You can replace with your own from ElevenLabs dashboard.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-4">
                   <Button
                     onClick={testElevenLabsConnection}
-                    disabled={isTestingConnection || !agentId}
+                    disabled={isTestingConnection}
                     variant="outline"
                   >
                     {isTestingConnection ? (
