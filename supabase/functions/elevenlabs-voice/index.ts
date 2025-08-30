@@ -24,9 +24,41 @@ serve(async (req) => {
     const endpoint = pathSegments[pathSegments.length - 1];
 
     console.log('ElevenLabs Voice Function - Full path:', url.pathname, 'Endpoint:', endpoint);
+    
+    const apiKey = ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      throw new Error('ELEVENLABS_API_KEY is not configured');
+    }
 
     // Handle different endpoints
     switch (endpoint) {
+      case 'test-connection': {
+        try {
+          // Simple test to verify API key works
+          const testResponse = await fetch('https://api.elevenlabs.io/v1/user', {
+            headers: {
+              'xi-api-key': apiKey,
+            },
+          });
+
+          if (!testResponse.ok) {
+            throw new Error('Invalid API key or connection failed');
+          }
+
+          return new Response(JSON.stringify({ success: true }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } catch (error) {
+          console.error('Connection test failed:', error);
+          return new Response(JSON.stringify({ 
+            error: 'Connection test failed',
+            message: error.message 
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
       case 'get-signed-url': {
         const { screenId, agentId } = await req.json();
         

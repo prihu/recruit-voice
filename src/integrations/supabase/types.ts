@@ -234,7 +234,6 @@ export type Database = {
         Row: {
           company_domain: string | null
           created_at: string
-          elevenlabs_config: Json | null
           id: string
           name: string
           settings: Json | null
@@ -244,7 +243,6 @@ export type Database = {
         Insert: {
           company_domain?: string | null
           created_at?: string
-          elevenlabs_config?: Json | null
           id?: string
           name: string
           settings?: Json | null
@@ -254,7 +252,6 @@ export type Database = {
         Update: {
           company_domain?: string | null
           created_at?: string
-          elevenlabs_config?: Json | null
           id?: string
           name?: string
           settings?: Json | null
@@ -313,7 +310,6 @@ export type Database = {
           user_id: string
           voice_agent_id: string | null
           voice_enabled: boolean | null
-          voice_settings: Json | null
         }
         Insert: {
           call_window?: Json | null
@@ -334,7 +330,6 @@ export type Database = {
           user_id: string
           voice_agent_id?: string | null
           voice_enabled?: boolean | null
-          voice_settings?: Json | null
         }
         Update: {
           call_window?: Json | null
@@ -355,7 +350,6 @@ export type Database = {
           user_id?: string
           voice_agent_id?: string | null
           voice_enabled?: boolean | null
-          voice_settings?: Json | null
         }
         Relationships: [
           {
