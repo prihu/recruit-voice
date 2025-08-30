@@ -28,50 +28,65 @@ serve(async (req) => {
     const demoEmail = 'demo@example.com';
     const demoPassword = 'DemoPassword123!';
 
-    // Check if demo user already exists
-    const { data: existingUser } = await supabaseAdmin.auth.admin.getUserById(
-      'demo-user-id'
-    ).catch(() => ({ data: null }));
+    // Try signing in first; if it fails, create user then sign in
+    // Attempt to sign in the demo user
+    const { data: initialSignIn, error: initialSignInError } = await supabaseAdmin.auth.signInWithPassword({
+      email: demoEmail,
+      password: demoPassword
+    });
 
-    if (!existingUser) {
-      // Create demo user using admin API (bypasses email verification)
-      const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
-        email: demoEmail,
-        password: demoPassword,
-        email_confirm: true, // Auto-confirm email
-        user_metadata: {
-          full_name: 'Demo User',
-          is_demo: true
+    if (!initialSignInError && initialSignIn?.session) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          session: initialSignIn.session,
+          user: initialSignIn.user
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
         }
-      });
+      );
+    }
 
-      if (createError) {
+    // If sign-in failed, ensure the demo user exists
+    const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      email: demoEmail,
+      password: demoPassword,
+      email_confirm: true,
+      user_metadata: { full_name: 'Demo User', is_demo: true }
+    });
+
+    if (createError) {
+      // If the user already exists, proceed to sign in
+      const code = (createError as any).code || (createError as any).status;
+      if (code === 'email_exists' || (typeof code === 'number' && code === 422)) {
+        console.log('Demo user already exists, continuing to sign in');
+      } else {
         console.error('Error creating demo user:', createError);
         return new Response(
           JSON.stringify({ error: 'Failed to create demo user', details: createError.message }),
-          { 
+          {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           }
         );
       }
-
-      console.log('Demo user created successfully:', newUser?.id);
     } else {
-      console.log('Demo user already exists');
+      console.log('Demo user created successfully:', createdUser?.user?.id);
     }
 
-    // Sign in the demo user
+    // Sign in (or re-try) the demo user
     const { data: signInData, error: signInError } = await supabaseAdmin.auth.signInWithPassword({
       email: demoEmail,
       password: demoPassword
     });
 
     if (signInError) {
-      console.error('Error signing in demo user:', signInError);
+      console.error('Error signing in demo user after create/check:', signInError);
       return new Response(
         JSON.stringify({ error: 'Failed to sign in demo user', details: signInError.message }),
-        { 
+        {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
@@ -79,12 +94,12 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         success: true,
         session: signInData.session,
         user: signInData.user
       }),
-      { 
+      {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200
       }
