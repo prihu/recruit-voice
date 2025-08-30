@@ -14,6 +14,131 @@ export type Database = {
   }
   public: {
     Tables: {
+      analytics_events: {
+        Row: {
+          candidate_id: string | null
+          event_category: string | null
+          event_data: Json | null
+          event_type: string
+          id: string
+          organization_id: string
+          role_id: string | null
+          screen_id: string | null
+          timestamp: string
+        }
+        Insert: {
+          candidate_id?: string | null
+          event_category?: string | null
+          event_data?: Json | null
+          event_type: string
+          id?: string
+          organization_id: string
+          role_id?: string | null
+          screen_id?: string | null
+          timestamp?: string
+        }
+        Update: {
+          candidate_id?: string | null
+          event_category?: string | null
+          event_data?: Json | null
+          event_type?: string
+          id?: string
+          organization_id?: string
+          role_id?: string | null
+          screen_id?: string | null
+          timestamp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analytics_events_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analytics_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analytics_events_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analytics_events_screen_id_fkey"
+            columns: ["screen_id"]
+            isOneToOne: false
+            referencedRelation: "screens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      call_logs: {
+        Row: {
+          call_sid: string | null
+          cost: number | null
+          created_at: string
+          direction: string | null
+          duration_seconds: number | null
+          id: string
+          organization_id: string
+          phone_number: string
+          recording_url: string | null
+          screen_id: string
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          call_sid?: string | null
+          cost?: number | null
+          created_at?: string
+          direction?: string | null
+          duration_seconds?: number | null
+          id?: string
+          organization_id: string
+          phone_number: string
+          recording_url?: string | null
+          screen_id: string
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          call_sid?: string | null
+          cost?: number | null
+          created_at?: string
+          direction?: string | null
+          duration_seconds?: number | null
+          id?: string
+          organization_id?: string
+          phone_number?: string
+          recording_url?: string | null
+          screen_id?: string
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "call_logs_screen_id_fkey"
+            columns: ["screen_id"]
+            isOneToOne: false
+            referencedRelation: "screens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       candidates: {
         Row: {
           created_at: string | null
@@ -24,6 +149,7 @@ export type Database = {
           language: string | null
           location_pref: string | null
           name: string
+          organization_id: string | null
           phone: string
           salary_expectation: number | null
           skills: string[] | null
@@ -39,6 +165,7 @@ export type Database = {
           language?: string | null
           location_pref?: string | null
           name: string
+          organization_id?: string | null
           phone: string
           salary_expectation?: number | null
           skills?: string[] | null
@@ -54,11 +181,85 @@ export type Database = {
           language?: string | null
           location_pref?: string | null
           name?: string
+          organization_id?: string | null
           phone?: string
           salary_expectation?: number | null
           skills?: string[] | null
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_members: {
+        Row: {
+          created_at: string
+          id: string
+          organization_id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_id: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          company_domain: string | null
+          created_at: string
+          elevenlabs_config: Json | null
+          id: string
+          name: string
+          settings: Json | null
+          twilio_config: Json | null
+          updated_at: string
+        }
+        Insert: {
+          company_domain?: string | null
+          created_at?: string
+          elevenlabs_config?: Json | null
+          id?: string
+          name: string
+          settings?: Json | null
+          twilio_config?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          company_domain?: string | null
+          created_at?: string
+          elevenlabs_config?: Json | null
+          id?: string
+          name?: string
+          settings?: Json | null
+          twilio_config?: Json | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -99,6 +300,7 @@ export type Database = {
           faq: Json | null
           id: string
           location: string
+          organization_id: string | null
           questions: Json | null
           rules: Json | null
           salary_currency: string | null
@@ -119,6 +321,7 @@ export type Database = {
           faq?: Json | null
           id?: string
           location: string
+          organization_id?: string | null
           questions?: Json | null
           rules?: Json | null
           salary_currency?: string | null
@@ -139,6 +342,7 @@ export type Database = {
           faq?: Json | null
           id?: string
           location?: string
+          organization_id?: string | null
           questions?: Json | null
           rules?: Json | null
           salary_currency?: string | null
@@ -153,7 +357,69 @@ export type Database = {
           voice_enabled?: boolean | null
           voice_settings?: Json | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "roles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scheduled_calls: {
+        Row: {
+          created_at: string
+          id: string
+          last_attempt_at: string | null
+          next_retry_at: string | null
+          organization_id: string
+          retry_count: number | null
+          scheduled_time: string
+          screen_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_attempt_at?: string | null
+          next_retry_at?: string | null
+          organization_id: string
+          retry_count?: number | null
+          scheduled_time: string
+          screen_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_attempt_at?: string | null
+          next_retry_at?: string | null
+          organization_id?: string
+          retry_count?: number | null
+          scheduled_time?: string
+          screen_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_calls_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_calls_screen_id_fkey"
+            columns: ["screen_id"]
+            isOneToOne: false
+            referencedRelation: "screens"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       screening_events: {
         Row: {
@@ -199,6 +465,7 @@ export type Database = {
           created_at: string | null
           duration_seconds: number | null
           id: string
+          organization_id: string | null
           outcome: string | null
           reasons: string[] | null
           recording_url: string | null
@@ -225,6 +492,7 @@ export type Database = {
           created_at?: string | null
           duration_seconds?: number | null
           id?: string
+          organization_id?: string | null
           outcome?: string | null
           reasons?: string[] | null
           recording_url?: string | null
@@ -251,6 +519,7 @@ export type Database = {
           created_at?: string | null
           duration_seconds?: number | null
           id?: string
+          organization_id?: string | null
           outcome?: string | null
           reasons?: string[] | null
           recording_url?: string | null
@@ -275,6 +544,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "screens_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "screens_role_id_fkey"
             columns: ["role_id"]
             isOneToOne: false
@@ -288,7 +564,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_organization_id: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never
