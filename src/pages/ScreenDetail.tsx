@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { mockScreens } from '@/lib/mockData';
 import { formatDistanceToNow, format } from 'date-fns';
+import { VoiceScreening } from '@/components/VoiceScreening';
 
 export default function ScreenDetail() {
   const { id } = useParams();
