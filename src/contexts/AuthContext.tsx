@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { createContext, useContext, useState } from 'react';
 import { User } from '@supabase/supabase-js';
-import { toast } from '@/hooks/use-toast';
+import { DEMO_MODE, DEMO_USER } from '@/lib/demoConstants';
 
 interface AuthContextType {
   user: User | null;
@@ -13,123 +12,27 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  // In demo mode, always provide a mock user
+  const mockUser = DEMO_MODE ? {
+    id: DEMO_USER.id,
+    email: DEMO_USER.email,
+    app_metadata: {},
+    user_metadata: { role: DEMO_USER.role },
+    aud: 'authenticated',
+    created_at: new Date().toISOString(),
+  } as User : null;
 
-  useEffect(() => {
-    // Check if user is already logged in
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      setUser(user);
-      if (user) {
-        // Auto-heal: ensure organization membership exists
-        await ensureOrgMembership();
-      }
-      setLoading(false);
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        // Auto-heal when user signs in or session refreshes
-        await ensureOrgMembership();
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  // Ensure the current user has an organization membership (demo auto-heal)
-  const ensureOrgMembership = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      
-      // Use the new RPC function to ensure demo org exists
-      const { data: orgId, error } = await supabase.rpc('ensure_demo_org_for_user');
-      
-      if (error) {
-        console.error('Error ensuring organization membership:', error);
-        // Try fallback with edge function
-        const { data, error: fnError } = await supabase.functions.invoke('provision-demo-user');
-        if (fnError) {
-          console.error('Fallback provision-demo-user failed:', fnError);
-        } else {
-          console.log('Organization provisioned via edge function fallback');
-        }
-      } else if (orgId) {
-        console.log('Organization membership ensured:', orgId);
-      }
-    } catch (e) {
-      console.error('ensureOrgMembership error:', e);
-    }
-  };
+  const [user] = useState<User | null>(mockUser);
+  const [loading] = useState(false);
 
   const signInDemo = async () => {
-    try {
-      setLoading(true);
-      
-      // Call edge function to provision and sign in demo user
-      const { data, error } = await supabase.functions.invoke('provision-demo-user', {
-        method: 'POST'
-      });
-
-      if (error) {
-        console.error('Error provisioning demo user:', error);
-        toast({
-          title: "Authentication error",
-          description: "Failed to start demo. Please try again.",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      if (data?.session) {
-        // Set the session manually
-        await supabase.auth.setSession({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token
-        });
-        
-        // Update local state
-        setUser(data.user);
-        
-        toast({
-          title: "Welcome to RecruiterScreen AI",
-          description: "Explore the demo with sample data"
-        });
-        // Auto-heal: ensure org membership exists for the demo user
-        await ensureOrgMembership();
-      }
-    } catch (error: any) {
-      console.error('Unexpected error during demo sign in:', error);
-      toast({
-        title: "Authentication error",
-        description: error.message || "An unexpected error occurred",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
-    }
+    // In demo mode, no actual sign in needed
+    console.log('Demo mode - no authentication required');
   };
 
   const signOut = async () => {
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
-      toast({
-        title: "Signed out",
-        description: "You have been logged out successfully"
-      });
-    } catch (error: any) {
-      console.error('Sign out error:', error);
-      toast({
-        title: "Error signing out",
-        description: error.message,
-        variant: "destructive"
-      });
-    }
+    // In demo mode, no actual sign out needed
+    console.log('Demo mode - no sign out required');
   };
 
   return (

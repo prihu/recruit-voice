@@ -26,3 +26,18 @@ verify_jwt = true
 
 [functions.process-bulk-screenings]
 verify_jwt = true
+
+[functions.demo-api-roles]
+verify_jwt = false
+
+[functions.demo-api-candidates]
+verify_jwt = false
+
+[functions.demo-api-screenings]
+verify_jwt = false
+
+[functions.demo-api-analytics]
+verify_jwt = false
+
+[functions.demo-api-agent-manager]
+verify_jwt = false

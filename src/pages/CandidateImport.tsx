@@ -33,7 +33,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 
 export default function CandidateImport() {
   const [file, setFile] = useState<File | null>(null);
@@ -46,6 +46,7 @@ export default function CandidateImport() {
   const [roles, setRoles] = useState<any[]>([]);
   const { toast } = useToast();
   const navigate = useNavigate();
+  const demoAPI = useDemoAPI();
 
   const systemFields = [
     { value: 'name', label: 'Name (Required)' },
@@ -85,23 +86,8 @@ export default function CandidateImport() {
       setMappingStep(true);
       
       // Fetch roles
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user) {
-        const { data: orgData } = await supabase
-          .from('organization_members')
-          .select('organization_id')
-          .eq('user_id', userData.user.id)
-          .single();
-
-        if (orgData) {
-          const { data: rolesData } = await supabase
-            .from('roles')
-            .select('*')
-            .eq('organization_id', orgData.organization_id);
-          
-          setRoles(rolesData || []);
-        }
-      }
+      const rolesData = await demoAPI.getRoles();
+      setRoles(rolesData || []);
     } else {
       toast({
         title: 'Invalid File',
@@ -183,28 +169,8 @@ export default function CandidateImport() {
         });
       }
       
-      // Insert candidates into database
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) throw new Error('User not authenticated');
-
-      const { data: orgData } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', userData.user.id)
-        .single();
-
-      const candidatesWithUserId = candidates.map(c => ({
-        ...c,
-        user_id: userData.user.id,
-        organization_id: orgData?.organization_id,
-        phone: c.phone || null // Ensure phone field is included
-      }));
-      
-      const { error } = await supabase
-        .from('candidates')
-        .insert(candidatesWithUserId);
-      
-      if (error) throw error;
+      // Insert candidates into database using demo API
+      const result = await demoAPI.bulkImportCandidates(candidates);
       
       toast({
         title: 'Import Successful',
