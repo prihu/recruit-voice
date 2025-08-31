@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,6 +11,10 @@ import {
   Plus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { QuickActionsMenu } from '@/components/QuickActionsMenu';
+import { BulkScreeningModal } from '@/components/BulkScreeningModal';
+import { Badge } from '@/components/ui/badge';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -18,6 +22,39 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
+  const [activeScreensCount, setActiveScreensCount] = useState(0);
+  const [showBulkScreening, setShowBulkScreening] = useState(false);
+
+  useEffect(() => {
+    // Fetch initial count of active screens
+    const fetchActiveScreens = async () => {
+      const { count } = await supabase
+        .from('screens')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['in_progress', 'scheduled']);
+      
+      setActiveScreensCount(count || 0);
+    };
+
+    fetchActiveScreens();
+
+    // Subscribe to real-time updates
+    const channel = supabase
+      .channel('active-screens')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'screens' },
+        async () => {
+          // Re-fetch count when screens table changes
+          fetchActiveScreens();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const navItems = [
     {
@@ -36,7 +73,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       title: 'Screens',
       href: '/screens',
       icon: Phone,
-      badge: '3 active'
+      badge: activeScreensCount > 0 ? `${activeScreensCount} active` : null
     },
     {
       title: 'Settings',
@@ -87,14 +124,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-primary text-primary hover:bg-primary hover:text-primary-foreground"
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Quick Actions
-            </Button>
+            <QuickActionsMenu onOpenBulkScreening={() => setShowBulkScreening(true)} />
             <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-medium text-sm">
               JD
             </div>
@@ -108,6 +138,12 @@ export function AppLayout({ children }: AppLayoutProps) {
           {children}
         </div>
       </main>
+
+      {/* Bulk Screening Modal */}
+      <BulkScreeningModal 
+        open={showBulkScreening} 
+        onOpenChange={setShowBulkScreening} 
+      />
     </div>
   );
 }
