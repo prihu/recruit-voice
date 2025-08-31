@@ -91,7 +91,7 @@ export default function RoleDetail() {
         return;
       }
 
-      const { data: orgMember, error: orgError } = await supabase
+      let { data: orgMember, error: orgError } = await supabase
         .from('organization_members')
         .select('organization_id')
         .eq('user_id', userData.user.id)
@@ -108,12 +108,34 @@ export default function RoleDetail() {
       }
 
       if (!orgMember) {
-        toast({
-          title: "Error",
-          description: "Organization not found",
-          variant: "destructive"
-        });
-        return;
+        // Try to auto-heal by ensuring organization exists
+        const { data: orgId, error: rpcError } = await supabase.rpc('ensure_demo_org_for_user');
+        if (rpcError || !orgId) {
+          console.error('Failed to ensure organization:', rpcError);
+          toast({
+            title: "Setup Required",
+            description: "Creating demo organization...",
+          });
+          // Retry after short delay
+          setTimeout(() => fetchRole(), 1000);
+          return;
+        }
+        // Re-fetch member with new org
+        const { data: newMember } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .eq('user_id', userData.user.id)
+          .single();
+        
+        if (!newMember) {
+          toast({
+            title: "Error",
+            description: "Failed to create organization",
+            variant: "destructive"
+          });
+          return;
+        }
+        orgMember = newMember;
       }
 
       const { data: role, error } = await supabase
@@ -179,7 +201,7 @@ export default function RoleDetail() {
         return;
       }
 
-      const { data: orgMember, error: orgError } = await supabase
+      let { data: orgMember, error: orgError } = await supabase
         .from('organization_members')
         .select('organization_id')
         .eq('user_id', userData.user.id)
@@ -196,12 +218,32 @@ export default function RoleDetail() {
       }
 
       if (!orgMember) {
-        toast({
-          title: "Error",
-          description: "Organization not found",
-          variant: "destructive"
-        });
-        return;
+        // Try to auto-heal by ensuring organization exists
+        const { data: orgId, error: rpcError } = await supabase.rpc('ensure_demo_org_for_user');
+        if (rpcError || !orgId) {
+          console.error('Failed to ensure organization:', rpcError);
+          toast({
+            title: "Setup Required",
+            description: "Please wait while we set up your organization...",
+          });
+          return;
+        }
+        // Re-fetch member with new org
+        const { data: newMember } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .eq('user_id', userData.user.id)
+          .single();
+        
+        if (!newMember) {
+          toast({
+            title: "Error",
+            description: "Failed to create organization",
+            variant: "destructive"
+          });
+          return;
+        }
+        orgMember = newMember;
       }
 
       const roleData = {

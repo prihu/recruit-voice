@@ -700,6 +700,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ensure_demo_org_for_user: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
       get_user_organization_id: {
         Args: Record<PropertyKey, never>
         Returns: string

@@ -46,22 +46,51 @@ export default function Roles() {
         .from('organization_members')
         .select('organization_id')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      if (!member) return;
+      if (!member) {
+        // Try to auto-heal by ensuring organization exists
+        const { data: orgId, error: rpcError } = await supabase.rpc('ensure_demo_org_for_user');
+        if (rpcError || !orgId) {
+          console.error('Failed to ensure organization:', rpcError);
+          toast({
+            title: 'Setup Required',
+            description: 'Creating demo organization...',
+          });
+          // Retry fetch after short delay
+          setTimeout(() => fetchRoles(), 1000);
+          return;
+        }
+        // Re-fetch member with new org
+        const { data: newMember } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .eq('user_id', user.id)
+          .single();
+        if (!newMember) return;
 
-      const { data, error } = await supabase
-        .from('roles')
-        .select(`
-          *,
-          screens:screens(count)
-        `)
-        .eq('organization_id', member.organization_id)
-        .order('created_at', { ascending: false });
+        const organizationId = newMember?.organization_id || member.organization_id;
+        const { data, error } = await supabase
+          .from('roles')
+          .select(`
+            *,
+            screens:screens(count)
+          `)
+          .eq('organization_id', organizationId)
+          .order('created_at', { ascending: false });
+      } else {
+        const { data, error } = await supabase
+          .from('roles')
+          .select(`
+            *,
+            screens:screens(count)
+          `)
+          .eq('organization_id', member.organization_id)
+          .order('created_at', { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
 
-      const rolesWithCount = data?.map(role => ({
+        const rolesWithCount = data?.map(role => ({
         ...role,
         screeningsCount: role.screens?.[0]?.count || 0,
         salaryBand: role.salary_min && role.salary_max ? {
@@ -71,9 +100,10 @@ export default function Roles() {
         } : null,
         createdAt: new Date(role.created_at),
         updatedAt: new Date(role.updated_at)
-      })) || [];
+        })) || [];
 
-      setRoles(rolesWithCount);
+        setRoles(rolesWithCount);
+      }
     } catch (error) {
       console.error('Error fetching roles:', error);
       toast({

@@ -18,14 +18,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check if user is already logged in
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
       setUser(user);
+      if (user) {
+        // Auto-heal: ensure organization membership exists
+        await ensureOrgMembership();
+      }
       setLoading(false);
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
+      if (session?.user) {
+        // Auto-heal when user signs in or session refreshes
+        await ensureOrgMembership();
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -36,14 +44,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: orgId, error } = await supabase.rpc('get_user_organization_id');
+      
+      // Use the new RPC function to ensure demo org exists
+      const { data: orgId, error } = await supabase.rpc('ensure_demo_org_for_user');
+      
       if (error) {
-        console.error('Error checking organization membership:', error);
-        return;
-      }
-      if (!orgId) {
-        console.warn('No organization found for user; attempting to provision demo org');
-        await supabase.functions.invoke('provision-demo-user');
+        console.error('Error ensuring organization membership:', error);
+        // Try fallback with edge function
+        const { data, error: fnError } = await supabase.functions.invoke('provision-demo-user');
+        if (fnError) {
+          console.error('Fallback provision-demo-user failed:', fnError);
+        } else {
+          console.log('Organization provisioned via edge function fallback');
+        }
+      } else if (orgId) {
+        console.log('Organization membership ensured:', orgId);
       }
     } catch (e) {
       console.error('ensureOrgMembership error:', e);

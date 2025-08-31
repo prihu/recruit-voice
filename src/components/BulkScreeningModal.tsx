@@ -165,7 +165,7 @@ export function BulkScreeningModal({
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error('User not authenticated');
 
-      const { data: orgData, error: orgError } = await supabase
+      let { data: orgData, error: orgError } = await supabase
         .from('organization_members')
         .select('organization_id')
         .eq('user_id', userData.user.id)
@@ -173,12 +173,34 @@ export function BulkScreeningModal({
 
       if (orgError || !orgData) {
         console.error('Organization lookup failed:', orgError);
-        toast({
-          title: 'Organization not found',
-          description: 'Please start the demo or contact support if this persists.',
-          variant: 'destructive',
-        });
-        return;
+        // Try to auto-heal by ensuring organization exists
+        const { data: orgId, error: rpcError } = await supabase.rpc('ensure_demo_org_for_user');
+        if (rpcError || !orgId) {
+          console.error('Failed to ensure organization:', rpcError);
+          toast({
+            title: 'Setup Required',
+            description: 'Setting up your organization. Please try again in a moment.',
+          });
+          setIsLoading(false);
+          return;
+        }
+        // Re-fetch member with new org
+        const { data: newOrgData } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .eq('user_id', userData.user.id)
+          .single();
+        
+        if (!newOrgData) {
+          toast({
+            title: 'Error',
+            description: 'Failed to create organization. Please contact support.',
+            variant: 'destructive'
+          });
+          setIsLoading(false);
+          return;
+        }
+        orgData = newOrgData;
       }
 
       // Create bulk operation record
