@@ -31,6 +31,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Ensure the current user has an organization membership (demo auto-heal)
+  const ensureOrgMembership = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: orgId, error } = await supabase.rpc('get_user_organization_id');
+      if (error) {
+        console.error('Error checking organization membership:', error);
+        return;
+      }
+      if (!orgId) {
+        console.warn('No organization found for user; attempting to provision demo org');
+        await supabase.functions.invoke('provision-demo-user');
+      }
+    } catch (e) {
+      console.error('ensureOrgMembership error:', e);
+    }
+  };
+
   const signInDemo = async () => {
     try {
       setLoading(true);
@@ -64,6 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           title: "Welcome to RecruiterScreen AI",
           description: "Explore the demo with sample data"
         });
+        // Auto-heal: ensure org membership exists for the demo user
+        await ensureOrgMembership();
       }
     } catch (error: any) {
       console.error('Unexpected error during demo sign in:', error);

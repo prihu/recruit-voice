@@ -171,12 +171,15 @@ export function BulkScreeningModal({
         .eq('user_id', userData.user.id)
         .maybeSingle();
 
-      if (orgError) {
-        console.error('Error fetching organization:', orgError);
-        throw new Error('Organization not found');
+      if (orgError || !orgData) {
+        console.error('Organization lookup failed:', orgError);
+        toast({
+          title: 'Organization not found',
+          description: 'Please start the demo or contact support if this persists.',
+          variant: 'destructive',
+        });
+        return;
       }
-
-      if (!orgData) throw new Error('Organization not found');
 
       // Create bulk operation record
       const { data: bulkOp, error: bulkError } = await supabase

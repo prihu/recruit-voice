@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
 import { Download, TrendingUp, Users, Phone, CheckCircle, XCircle, Clock } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { Link } from "react-router-dom";
 
 interface AnalyticsData {
   summary: {
@@ -36,6 +37,7 @@ interface AnalyticsData {
 export function EnhancedAnalyticsDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [errorCode, setErrorCode] = useState<number | null>(null);
 
   useEffect(() => {
     fetchAnalytics();
@@ -43,12 +45,31 @@ export function EnhancedAnalyticsDashboard() {
 
   const fetchAnalytics = async () => {
     try {
-      const { data } = await supabase.functions.invoke('api-analytics');
-      setAnalytics(data.analytics);
-    } catch (error) {
-      console.error('Error fetching analytics:', error);
+      const { data, error } = await supabase.functions.invoke('api-analytics');
+      if (error) {
+        console.error('Error fetching analytics:', error);
+        // @ts-ignore - status is present on function error
+        setErrorCode(error.status || 400);
+        setAnalytics(null);
+      } else {
+        setAnalytics(data.analytics);
+        setErrorCode(null);
+      }
+    } catch (err: any) {
+      console.error('Unexpected analytics error:', err);
+      setErrorCode(400);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fixDemoSetup = async () => {
+    try {
+      await supabase.functions.invoke('provision-demo-user');
+      setLoading(true);
+      await fetchAnalytics();
+    } catch (e) {
+      console.error('Failed to fix demo setup:', e);
     }
   };
 
@@ -75,6 +96,34 @@ export function EnhancedAnalyticsDashboard() {
   };
 
   if (loading) return <div>Loading analytics...</div>;
+  if (errorCode === 401) {
+    return (
+      <Card className="p-6">
+        <CardHeader>
+          <CardTitle>Authentication required</CardTitle>
+          <CardDescription>Please start the demo to view analytics.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link to="/demo-login">
+            <Button>Start Interactive Demo</Button>
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (errorCode === 403) {
+    return (
+      <Card className="p-6">
+        <CardHeader>
+          <CardTitle>Organization not found</CardTitle>
+          <CardDescription>We couldn't find your organization. Fix your demo setup.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={fixDemoSetup}>Fix demo setup</Button>
+        </CardContent>
+      </Card>
+    );
+  }
   if (!analytics) return <div>No analytics data available</div>;
 
   const responseQualityData = [
