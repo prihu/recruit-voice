@@ -33,14 +33,22 @@ serve(async (req) => {
     }
 
     // Get organization ID for the user
-    const { data: orgMember } = await supabaseClient
+    const { data: orgMember, error: orgError } = await supabaseClient
       .from('organization_members')
       .select('organization_id')
       .eq('user_id', user.id)
-      .single()
+      .maybeSingle()
+
+    if (orgError) {
+      console.error('Error fetching organization membership:', orgError)
+      throw new Error('Failed to verify organization membership')
+    }
 
     if (!orgMember) {
-      throw new Error('User not associated with any organization')
+      return new Response(
+        JSON.stringify({ error: 'User not associated with any organization. Please contact support.' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
 
     const url = new URL(req.url)

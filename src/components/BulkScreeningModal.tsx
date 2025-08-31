@@ -58,11 +58,16 @@ export function BulkScreeningModal({
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return;
 
-    const { data: orgData } = await supabase
+    const { data: orgData, error: orgError } = await supabase
       .from('organization_members')
       .select('organization_id')
       .eq('user_id', userData.user.id)
-      .single();
+      .maybeSingle();
+    
+    if (orgError) {
+      console.error('Error fetching organization:', orgError);
+      return;
+    }
 
     if (orgData) {
       const { data: rolesData } = await supabase
@@ -80,11 +85,16 @@ export function BulkScreeningModal({
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return;
 
-    const { data: orgData } = await supabase
+    const { data: orgData, error: orgError } = await supabase
       .from('organization_members')
       .select('organization_id')
       .eq('user_id', userData.user.id)
-      .single();
+      .maybeSingle();
+
+    if (orgError) {
+      console.error('Error fetching organization:', orgError);
+      return;
+    }
 
     if (orgData) {
       // Get candidates that haven't been screened yet
@@ -155,11 +165,16 @@ export function BulkScreeningModal({
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error('User not authenticated');
 
-      const { data: orgData } = await supabase
+      const { data: orgData, error: orgError } = await supabase
         .from('organization_members')
         .select('organization_id')
         .eq('user_id', userData.user.id)
-        .single();
+        .maybeSingle();
+
+      if (orgError) {
+        console.error('Error fetching organization:', orgError);
+        throw new Error('Organization not found');
+      }
 
       if (!orgData) throw new Error('Organization not found');
 

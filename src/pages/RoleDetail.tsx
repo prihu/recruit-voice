@@ -91,11 +91,21 @@ export default function RoleDetail() {
         return;
       }
 
-      const { data: orgMember } = await supabase
+      const { data: orgMember, error: orgError } = await supabase
         .from('organization_members')
         .select('organization_id')
         .eq('user_id', userData.user.id)
-        .single();
+        .maybeSingle();
+
+      if (orgError) {
+        console.error('Error fetching organization:', orgError);
+        toast({
+          title: "Error",
+          description: "Failed to fetch organization",
+          variant: "destructive"
+        });
+        return;
+      }
 
       if (!orgMember) {
         toast({
@@ -169,11 +179,21 @@ export default function RoleDetail() {
         return;
       }
 
-      const { data: orgMember } = await supabase
+      const { data: orgMember, error: orgError } = await supabase
         .from('organization_members')
         .select('organization_id')
         .eq('user_id', userData.user.id)
-        .single();
+        .maybeSingle();
+
+      if (orgError) {
+        console.error('Error fetching organization:', orgError);
+        toast({
+          title: "Error",
+          description: "Failed to fetch organization",
+          variant: "destructive"
+        });
+        return;
+      }
 
       if (!orgMember) {
         toast({
