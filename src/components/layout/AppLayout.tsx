@@ -39,12 +39,6 @@ export function AppLayout({ children }: AppLayoutProps) {
       badge: '3 active'
     },
     {
-      title: 'Analytics',
-      href: '/analytics',
-      icon: BarChart3,
-      badge: null
-    },
-    {
       title: 'Settings',
       href: '/settings',
       icon: Settings,
