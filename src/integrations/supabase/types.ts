@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_archive_log: {
+        Row: {
+          agent_id: string
+          archived_at: string | null
+          id: string
+          organization_id: string
+          reason: string
+          role_id: string
+        }
+        Insert: {
+          agent_id: string
+          archived_at?: string | null
+          id?: string
+          organization_id: string
+          reason: string
+          role_id: string
+        }
+        Update: {
+          agent_id?: string
+          archived_at?: string | null
+          id?: string
+          organization_id?: string
+          reason?: string
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_archive_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_archive_log_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analytics_events: {
         Row: {
           candidate_id: string | null
@@ -304,8 +346,13 @@ export type Database = {
       }
       roles: {
         Row: {
+          agent_created_at: string | null
+          agent_error_message: string | null
+          agent_last_used_at: string | null
+          agent_sync_status: string | null
           call_window: Json | null
           created_at: string | null
+          evaluation_criteria: string | null
           faq: Json | null
           id: string
           location: string
@@ -324,8 +371,13 @@ export type Database = {
           voice_enabled: boolean | null
         }
         Insert: {
+          agent_created_at?: string | null
+          agent_error_message?: string | null
+          agent_last_used_at?: string | null
+          agent_sync_status?: string | null
           call_window?: Json | null
           created_at?: string | null
+          evaluation_criteria?: string | null
           faq?: Json | null
           id?: string
           location: string
@@ -344,8 +396,13 @@ export type Database = {
           voice_enabled?: boolean | null
         }
         Update: {
+          agent_created_at?: string | null
+          agent_error_message?: string | null
+          agent_last_used_at?: string | null
+          agent_sync_status?: string | null
           call_window?: Json | null
           created_at?: string | null
+          evaluation_criteria?: string | null
           faq?: Json | null
           id?: string
           location?: string

@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Select,
   SelectContent,
@@ -30,9 +31,14 @@ import {
   TestTube,
   PlayCircle,
   Save,
-  Loader2
+  Loader2,
+  Bot,
+  AlertCircle,
+  CheckCircle,
+  RefreshCw,
+  FileText
 } from 'lucide-react';
-import { Role, ScreeningQuestion, FAQEntry, ScoringRule } from '@/types';
+import { Role, ScreeningQuestion, FAQEntry } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -56,7 +62,11 @@ export default function RoleDetail() {
   const [salaryCurrency, setSalaryCurrency] = useState('INR');
   const [questions, setQuestions] = useState<ScreeningQuestion[]>([]);
   const [faq, setFaq] = useState<FAQEntry[]>([]);
-  const [rules, setRules] = useState<ScoringRule[]>([]);
+  const [evaluationCriteria, setEvaluationCriteria] = useState('');
+  const [agentId, setAgentId] = useState<string | null>(null);
+  const [agentStatus, setAgentStatus] = useState<'pending' | 'synced' | 'failed' | 'archived'>('pending');
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [creatingAgent, setCreatingAgent] = useState(false);
   const [callWindow, setCallWindow] = useState({
     timezone: 'Asia/Kolkata',
     allowedHours: { start: '09:00', end: '17:00' },
@@ -123,7 +133,10 @@ export default function RoleDetail() {
       setSalaryCurrency(role.salary_currency || 'INR');
       setQuestions((role.questions as any as ScreeningQuestion[]) || []);
       setFaq((role.faq as any as FAQEntry[]) || []);
-      setRules((role.rules as any as ScoringRule[]) || []);
+      setEvaluationCriteria(role.evaluation_criteria || '');
+      setAgentId(role.voice_agent_id || null);
+      setAgentStatus((role.agent_sync_status || 'pending') as 'pending' | 'synced' | 'failed' | 'archived');
+      setAgentError(role.agent_error_message || null);
       setCallWindow((role.call_window as any) || callWindow);
     } catch (error) {
       console.error('Error fetching role:', error);
@@ -181,7 +194,7 @@ export default function RoleDetail() {
         salary_currency: salaryCurrency,
         questions: questions as any,
         faq: faq as any,
-        rules: rules as any,
+        evaluation_criteria: evaluationCriteria,
         call_window: callWindow as any,
         organization_id: orgMember.organization_id,
         user_id: userData.user.id
@@ -269,29 +282,57 @@ export default function RoleDetail() {
     setFaq(faq.filter((_, i) => i !== index));
   };
 
-  const addRule = () => {
-    const newRule: ScoringRule = {
-      id: `rule-${Date.now()}`,
-      name: '',
-      condition: {
-        field: '',
-        operator: 'equals',
-        value: ''
-      },
-      weight: 1,
-      isRequired: false
-    };
-    setRules([...rules, newRule]);
-  };
+  const createOrUpdateAgent = async () => {
+    if (!id || isNewRole) {
+      toast({
+        title: "Info",
+        description: "Please save the role first before creating an agent",
+      });
+      return;
+    }
 
-  const updateRule = (index: number, updates: Partial<ScoringRule>) => {
-    const updated = [...rules];
-    updated[index] = { ...updated[index], ...updates };
-    setRules(updated);
-  };
+    setCreatingAgent(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('agent-manager', {
+        body: { 
+          action: agentId ? 'update' : 'create',
+          roleId: id
+        }
+      });
 
-  const removeRule = (index: number) => {
-    setRules(rules.filter((_, i) => i !== index));
+      if (error) throw error;
+
+      if (data?.success) {
+        setAgentId(data.agentId);
+        setAgentStatus('synced');
+        setAgentError(null);
+        toast({
+          title: "Success",
+          description: data.message || "Agent configured successfully",
+        });
+        
+        // Update the role in the database
+        await supabase
+          .from('roles')
+          .update({ 
+            voice_agent_id: data.agentId,
+            agent_sync_status: 'synced',
+            agent_error_message: null
+          })
+          .eq('id', id);
+      }
+    } catch (error: any) {
+      console.error('Error with agent:', error);
+      setAgentStatus('failed');
+      setAgentError(error.message || 'Failed to configure agent');
+      toast({
+        title: "Error",
+        description: "There is a problem in ElevenLabs, please contact support",
+        variant: "destructive"
+      });
+    } finally {
+      setCreatingAgent(false);
+    }
   };
 
   if (loading) {
@@ -602,98 +643,115 @@ export default function RoleDetail() {
             </Card>
           </TabsContent>
 
-          {/* Rules Tab */}
+          {/* Evaluation & Agent Tab */}
           <TabsContent value="rules" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Scoring Rules</CardTitle>
-                <CardDescription>Define pass/fail criteria and scoring weights</CardDescription>
+                <CardTitle>Evaluation Criteria</CardTitle>
+                <CardDescription>Define screening criteria and pass/fail requirements in plain text</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {rules.map((rule, index) => (
-                  <div key={rule.id} className="space-y-3 p-4 border rounded-lg bg-card-hover">
-                    <div className="flex justify-between items-start">
-                      <div className="space-y-2 flex-1">
-                        <Input 
-                          value={rule.name}
-                          onChange={(e) => updateRule(index, { name: e.target.value })}
-                          placeholder="Rule name..."
-                          className="font-medium"
-                        />
-                        <div className="flex gap-2">
-                          <Input 
-                            value={rule.condition.field}
-                            onChange={(e) => updateRule(index, { 
-                              condition: { ...rule.condition, field: e.target.value }
-                            })}
-                            placeholder="Field..."
-                            className="w-32"
-                          />
-                          <Select 
-                            value={rule.condition.operator}
-                            onValueChange={(v) => updateRule(index, {
-                              condition: { ...rule.condition, operator: v as ScoringRule['condition']['operator'] }
-                            })}
-                          >
-                            <SelectTrigger className="w-32">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="equals">Equals</SelectItem>
-                              <SelectItem value="greater_than">Greater Than</SelectItem>
-                              <SelectItem value="less_than">Less Than</SelectItem>
-                              <SelectItem value="contains">Contains</SelectItem>
-                              <SelectItem value="in">In</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Input 
-                            value={rule.condition.value}
-                            onChange={(e) => updateRule(index, {
-                              condition: { ...rule.condition, value: e.target.value }
-                            })}
-                            placeholder="Value..."
-                            className="w-32"
-                          />
-                        </div>
-                        <div className="flex gap-4 items-center">
-                          <div className="flex items-center gap-2">
-                            <Label htmlFor={`weight-${rule.id}`} className="text-sm">Weight:</Label>
-                            <Input 
-                              id={`weight-${rule.id}`}
-                              type="number" 
-                              value={rule.weight}
-                              onChange={(e) => updateRule(index, { weight: parseInt(e.target.value) || 0 })}
-                              className="w-20"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Switch 
-                              id={`required-rule-${rule.id}`} 
-                              checked={rule.isRequired}
-                              onCheckedChange={(checked) => updateRule(index, { isRequired: checked })}
-                            />
-                            <Label htmlFor={`required-rule-${rule.id}`} className="text-sm">Required to pass</Label>
-                          </div>
-                        </div>
-                      </div>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => removeRule(index)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                <Button 
-                  variant="outline" 
-                  className="w-full"
-                  onClick={addRule}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Rule
-                </Button>
+                <div className="space-y-2">
+                  <Label htmlFor="criteria">Evaluation Instructions</Label>
+                  <Textarea 
+                    id="criteria"
+                    value={evaluationCriteria}
+                    onChange={(e) => setEvaluationCriteria(e.target.value)}
+                    rows={8}
+                    className="resize-none font-mono text-sm"
+                    placeholder="Example:&#10;- Candidate must have at least 3 years of React experience&#10;- Must be willing to relocate to Bangalore&#10;- Strong communication skills are required&#10;- Experience with TypeScript is a plus (but not mandatory)&#10;- Should be available to join within 30 days"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Write clear instructions that the AI agent will use to evaluate candidates. Be specific about requirements and preferences.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Voice Agent Configuration</CardTitle>
+                <CardDescription>AI agent that will conduct the screening calls</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {agentStatus === 'synced' && agentId && (
+                  <Alert className="bg-success/10 border-success/20">
+                    <CheckCircle className="h-4 w-4 text-success" />
+                    <AlertDescription className="text-success">
+                      Voice agent configured successfully
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
+                {agentStatus === 'failed' && agentError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {agentError}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {agentStatus === 'archived' && (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      Agent has been archived due to inactivity
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={createOrUpdateAgent}
+                    disabled={creatingAgent || isNewRole}
+                    className="flex-1"
+                  >
+                    {creatingAgent ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Configuring Agent...
+                      </>
+                    ) : (
+                      <>
+                        <Bot className="w-4 h-4 mr-2" />
+                        {agentId ? 'Update Agent' : 'Create Agent'}
+                      </>
+                    )}
+                  </Button>
+                  
+                  {agentId && agentStatus === 'synced' && (
+                    <Button 
+                      variant="outline"
+                      onClick={createOrUpdateAgent}
+                      disabled={creatingAgent}
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Sync Changes
+                    </Button>
+                  )}
+                </div>
+
+                {isNewRole && (
+                  <p className="text-sm text-muted-foreground">
+                    Save the role first to create a voice agent
+                  </p>
+                )}
+
+                <div className="rounded-lg border p-4 bg-muted/50">
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    What the agent will include:
+                  </h4>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li>• All role information (title, location, salary)</li>
+                    <li>• Your evaluation criteria</li>
+                    <li>• All screening questions</li>
+                    <li>• FAQ responses for candidate queries</li>
+                    <li>• Call window and timezone settings</li>
+                    <li>• Indian context awareness (languages, locations)</li>
+                  </ul>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
