@@ -282,6 +282,29 @@ export function useDemoAPI() {
     return data;
   };
 
+  const processBulkScreening = async (params: {
+    bulk_operation_id: string;
+    role_id: string;
+    candidate_ids: string[];
+    scheduling_type: string;
+    scheduled_time?: string;
+    batch_size: number;
+  }) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/bulk-process`, {
+        method: 'POST',
+        body: JSON.stringify(params)
+      });
+    }
+
+    const { data, error } = await supabase.functions.invoke('process-bulk-screenings', {
+      body: params
+    });
+    
+    if (error) throw error;
+    return data;
+  };
+
   return {
     // Role operations
     getRoles,
@@ -305,6 +328,7 @@ export function useDemoAPI() {
     scheduleCall,
     getBulkOperations,
     updateBulkOperation,
+    processBulkScreening,
 
     // Analytics operations
     getAnalytics,

@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, Phone, Clock, Calendar, DollarSign, Users, Loader2, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { format } from 'date-fns';
 
 interface BulkScreeningModalProps {
@@ -40,6 +40,7 @@ export function BulkScreeningModal({
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
+  const demoAPI = useDemoAPI();
 
   useEffect(() => {
     if (open) {
@@ -55,69 +56,29 @@ export function BulkScreeningModal({
   }, [preSelectedRole]);
 
   const fetchRoles = async () => {
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) return;
-
-    const { data: orgData, error: orgError } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', userData.user.id)
-      .maybeSingle();
-    
-    if (orgError) {
-      console.error('Error fetching organization:', orgError);
-      return;
-    }
-
-    if (orgData) {
-      const { data: rolesData } = await supabase
-        .from('roles')
-        .select('*')
-        .eq('organization_id', orgData.organization_id)
-        .eq('status', 'active')
-        .eq('voice_enabled', true);
-      
-      setRoles(rolesData || []);
+    try {
+      const rolesData = await demoAPI.getRoles();
+      // Filter for active roles with voice enabled
+      const activeRoles = rolesData.filter((role: any) => 
+        role.status === 'active' && role.voice_enabled !== false
+      );
+      setRoles(activeRoles);
+    } catch (error) {
+      console.error('Error fetching roles:', error);
     }
   };
 
   const fetchCandidates = async () => {
-    const { data: userData } = await supabase.auth.getUser();
-    if (!userData.user) return;
-
-    const { data: orgData, error: orgError } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', userData.user.id)
-      .maybeSingle();
-
-    if (orgError) {
-      console.error('Error fetching organization:', orgError);
-      return;
-    }
-
-    if (orgData) {
-      // Get candidates that haven't been screened yet
-      const { data: candidatesData } = await supabase
-        .from('candidates')
-        .select(`
-          *,
-          screens!left(
-            id,
-            status
-          )
-        `)
-        .eq('organization_id', orgData.organization_id);
-      
-      // Filter out candidates already screened for the selected role
-      const unscreenedCandidates = candidatesData?.filter(candidate => {
-        const hasBeenScreened = candidate.screens?.some(
-          (screen: any) => screen.status === 'completed' || screen.status === 'in_progress'
-        );
-        return !hasBeenScreened;
-      }) || [];
-      
+    try {
+      const candidatesData = await demoAPI.getCandidates();
+      // Filter out candidates that haven't been screened
+      const unscreenedCandidates = candidatesData.filter((candidate: any) => {
+        // In demo mode, assume all candidates are available for screening
+        return true;
+      });
       setCandidates(unscreenedCandidates);
+    } catch (error) {
+      console.error('Error fetching candidates:', error);
     }
   };
 
@@ -162,80 +123,29 @@ export function BulkScreeningModal({
 
     setIsLoading(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) throw new Error('User not authenticated');
-
-      let { data: orgData, error: orgError } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', userData.user.id)
-        .maybeSingle();
-
-      if (orgError || !orgData) {
-        console.error('Organization lookup failed:', orgError);
-        // Try to auto-heal by ensuring organization exists
-        const { data: orgId, error: rpcError } = await supabase.rpc('ensure_demo_org_for_user');
-        if (rpcError || !orgId) {
-          console.error('Failed to ensure organization:', rpcError);
-          toast({
-            title: 'Setup Required',
-            description: 'Setting up your organization. Please try again in a moment.',
-          });
-          setIsLoading(false);
-          return;
-        }
-        // Re-fetch member with new org
-        const { data: newOrgData } = await supabase
-          .from('organization_members')
-          .select('organization_id')
-          .eq('user_id', userData.user.id)
-          .single();
-        
-        if (!newOrgData) {
-          toast({
-            title: 'Error',
-            description: 'Failed to create organization. Please contact support.',
-            variant: 'destructive'
-          });
-          setIsLoading(false);
-          return;
-        }
-        orgData = newOrgData;
-      }
-
-      // Create bulk operation record
-      const { data: bulkOp, error: bulkError } = await supabase
-        .from('bulk_operations')
-        .insert({
-          organization_id: orgData.organization_id,
-          user_id: userData.user.id,
-          role_id: selectedRole,
-          total_count: selectedCandidates.length,
-          status: 'pending',
-          settings: {
-            batch_size: batchSize[0],
-            scheduling_type: schedulingType,
-            scheduled_time: schedulingType === 'scheduled' ? scheduledTime : null,
-          }
-        })
-        .select()
-        .single();
-
-      if (bulkError) throw bulkError;
-
-      // Call the edge function to process bulk screening
-      const { error } = await supabase.functions.invoke('process-bulk-screenings', {
-        body: {
-          bulk_operation_id: bulkOp.id,
-          role_id: selectedRole,
-          candidate_ids: selectedCandidates,
+      // In demo mode, create a bulk operation
+      const bulkOp = {
+        id: `bulk-${Date.now()}`,
+        role_id: selectedRole,
+        total_count: selectedCandidates.length,
+        status: 'pending',
+        settings: {
+          batch_size: batchSize[0],
           scheduling_type: schedulingType,
           scheduled_time: schedulingType === 'scheduled' ? scheduledTime : null,
-          batch_size: batchSize[0],
-        }
-      });
+        },
+        created_at: new Date().toISOString()
+      };
 
-      if (error) throw error;
+      // Process bulk screening via demo API
+      await demoAPI.processBulkScreening({
+        bulk_operation_id: bulkOp.id,
+        role_id: selectedRole,
+        candidate_ids: selectedCandidates,
+        scheduling_type: schedulingType,
+        scheduled_time: schedulingType === 'scheduled' ? scheduledTime : undefined,
+        batch_size: batchSize[0],
+      });
 
       toast({
         title: 'Bulk Screening Initiated',

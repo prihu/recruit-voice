@@ -1,8 +1,7 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { useConversation } from '@11labs/react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useCallback } from 'react';
 import { Role, Candidate } from '@/types';
 import { toast } from '@/hooks/use-toast';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 
 interface UseVoiceScreeningOptions {
   screenId: string;
@@ -23,10 +22,7 @@ export function useVoiceScreening({
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [isActive, setIsActive] = useState(false);
-
-  // Get Agent ID with fallback to default
-  const DEFAULT_AGENT_ID = 'l4Z9P6hLLbN38pYqnm41';
-  const agentId = localStorage.getItem('elevenlabs_agent_id') || DEFAULT_AGENT_ID;
+  const demoAPI = useDemoAPI();
 
   const handleScreeningComplete = useCallback(async () => {
     if (!conversationId) return;
@@ -37,24 +33,18 @@ export function useVoiceScreening({
       const outcome = score >= 70 ? 'pass' : 'fail';
       const reasons = generateReasons(answers, role, outcome);
 
-      // Save the transcript and results
-      await supabase.functions.invoke('elevenlabs-voice/save-transcript', {
-        body: {
-          screenId,
-          transcript: transcript.join('\n'),
-          answers,
-          outcome,
-          score,
-          reasons
-        }
+      // Save the screening results via demo API
+      await demoAPI.updateScreen(screenId, {
+        transcript: transcript.join('\n'),
+        extracted_data: answers,
+        outcome,
+        score,
+        reasons,
+        status: 'completed'
       });
 
       // Fetch updated screen data
-      const { data: updatedScreen } = await supabase
-        .from('screens')
-        .select('*')
-        .eq('id', screenId)
-        .single();
+      const updatedScreen = await demoAPI.getScreen(screenId);
 
       if (updatedScreen && onComplete) {
         onComplete(updatedScreen);
@@ -67,7 +57,7 @@ export function useVoiceScreening({
     } catch (error) {
       console.error('Error saving screening results:', error);
     }
-  }, [conversationId, answers, role, screenId, transcript, onComplete]);
+  }, [conversationId, answers, role, screenId, transcript, onComplete, demoAPI]);
 
   const processAnswer = useCallback((text: string) => {
     // Process the answer based on the current question
@@ -80,130 +70,28 @@ export function useVoiceScreening({
     }
   }, [currentQuestion, role.questions]);
 
-  const generatePrompt = (role: Role, candidate: Candidate) => {
-    return `You are conducting a phone screening interview for the ${role.title} position.
-    
-Candidate Information:
-- Name: ${candidate.name}
-- Experience: ${candidate.expYears || 'Not specified'} years
-- Location Preference: ${candidate.locationPref || 'Not specified'}
-- Skills: ${candidate.skills?.join(', ') || 'Not specified'}
-
-Role Requirements:
-${role.summary}
-
-Screening Questions:
-${role.questions.map((q, i) => `${i + 1}. ${q.text}`).join('\n')}
-
-Instructions:
-1. Be professional and friendly
-2. Ask each question clearly and wait for the candidate's response
-3. For yes/no questions, confirm the answer if unclear
-4. Allow candidates to ask clarifying questions
-5. If they have questions about the role, refer to the FAQ section
-6. After all questions, thank them and end the conversation
-7. Use the provided tools to save answers and move between questions
-
-FAQ for this role:
-${role.faq.map(f => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n')}
-
-Important: 
-- Speak naturally and conversationally
-- Be patient and give candidates time to think
-- Clarify any ambiguous answers
-- Call the appropriate tools to track progress`;
-  };
-
-  const conversation = useConversation({
-    onConnect: () => {
-      console.log('Connected to ElevenLabs');
-      setIsActive(true);
-      toast({
-        title: "Connected",
-        description: "Voice screening session started"
-      });
-    },
-    onDisconnect: () => {
-      console.log('Disconnected from ElevenLabs');
-      setIsActive(false);
-      handleScreeningComplete();
-    },
-    onMessage: (message: any) => {
-      console.log('Message received:', message);
-      
-      // Handle different message types
-      if (message.type === 'audio_transcript' || message.type === 'response.audio_transcript.delta') {
-        const text = message.text || message.delta || '';
-        if (text) {
-          setTranscript(prev => [...prev, `AI: ${text}`]);
-        }
-      } else if (message.type === 'user_transcript') {
-        const text = message.text || '';
-        if (text) {
-          setTranscript(prev => [...prev, `Candidate: ${text}`]);
-          processAnswer(text);
-        }
-      }
-    },
-    onError: (error: any) => {
-      console.error('Conversation error:', error);
-      toast({
-        title: "Error",
-        description: error.message || "An error occurred during the screening",
-        variant: "destructive"
-      });
-    },
-    clientTools: {
-      moveToNextQuestion: () => {
-        setCurrentQuestion(prev => prev + 1);
-        return "Moving to next question";
-      },
-      saveAnswer: (parameters: { questionId: string; answer: any }) => {
-        setAnswers(prev => ({
-          ...prev,
-          [parameters.questionId]: parameters.answer
-        }));
-        return "Answer saved";
-      },
-      endScreening: () => {
-        handleScreeningComplete();
-        return "Screening ended";
-      }
-    },
-    overrides: {
-      agent: {
-        prompt: {
-          prompt: generatePrompt(role, candidate),
-        },
-        firstMessage: `Hello ${candidate.name}, I'm here to conduct your phone screening for the ${role.title} position. Before we begin, I need your verbal consent to record this conversation for evaluation purposes. Do you agree to proceed?`,
-        language: (candidate.language || "en") as any,
-      }
-    }
-  });
-
   const startScreening = async () => {
     try {
       setIsLoading(true);
       
-      // Request microphone permission
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Get signed URL from our edge function with correct endpoint
-      const response = await supabase.functions.invoke('elevenlabs-voice/get-signed-url', {
-        body: { screenId, agentId }
+      // In demo mode, simulate voice screening
+      toast({
+        title: "Demo Mode",
+        description: "Voice screening simulation started"
       });
-
-      if (response.error) {
-        throw new Error(response.error.message);
-      }
-
-      const { signedUrl, conversationId: convId } = response.data;
-      setConversationId(convId);
-
-      // Start the conversation
-      await conversation.startSession({ 
-        agentId: signedUrl 
-      } as any);
+      
+      setIsActive(true);
+      setConversationId(`demo-${Date.now()}`);
+      
+      // Simulate screening progress
+      setTimeout(() => {
+        setTranscript([
+          "AI: Hello, I'm here to conduct your phone screening.",
+          "Candidate: Hi, I'm ready.",
+          "AI: Great! Let's begin with the first question..."
+        ]);
+        setCurrentQuestion(1);
+      }, 2000);
 
       setIsLoading(false);
 
@@ -220,7 +108,7 @@ Important:
 
   const stopScreening = async () => {
     try {
-      await conversation.endSession();
+      setIsActive(false);
       handleScreeningComplete();
     } catch (error) {
       console.error('Error stopping screening:', error);
@@ -233,7 +121,7 @@ Important:
 
     role.questions.forEach(question => {
       const answer = answers[question.id];
-      const rule = role.rules.find(r => r.condition.field === question.id);
+      const rule = role.rules?.find(r => r.condition.field === question.id);
       
       if (rule) {
         maxScore += rule.weight;
@@ -289,8 +177,7 @@ Important:
       reasons.push('Did not meet minimum qualification requirements');
       
       // Check for missing critical answers
-      role.rules
-        .filter(rule => rule.isRequired)
+      role.rules?.filter(rule => rule.isRequired)
         .forEach(rule => {
           const answer = answers[rule.condition.field];
           if (!answer || !evaluateRule(answer, rule)) {
@@ -312,8 +199,8 @@ Important:
     totalQuestions: role.questions.length,
     answers,
     conversationId,
-    isSpeaking: conversation.isSpeaking,
-    status: conversation.status,
-    setVolume: conversation.setVolume
+    isSpeaking: false, // Demo mode doesn't have real speaking
+    status: isActive ? 'connected' : 'disconnected',
+    setVolume: () => {} // No-op in demo mode
   };
 }

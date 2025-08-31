@@ -1,11 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
-import { Download, TrendingUp, Users, Phone, CheckCircle, XCircle, Clock } from "lucide-react";
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Link } from "react-router-dom";
+import { Download, TrendingUp, Users, Phone, CheckCircle } from "lucide-react";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useDemoAPI } from "@/hooks/useDemoAPI";
 
 interface AnalyticsData {
   summary: {
@@ -37,7 +36,7 @@ interface AnalyticsData {
 export function EnhancedAnalyticsDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [errorCode, setErrorCode] = useState<number | null>(null);
+  const demoAPI = useDemoAPI();
 
   useEffect(() => {
     fetchAnalytics();
@@ -45,85 +44,35 @@ export function EnhancedAnalyticsDashboard() {
 
   const fetchAnalytics = async () => {
     try {
-      const { data, error } = await supabase.functions.invoke('api-analytics');
-      if (error) {
-        console.error('Error fetching analytics:', error);
-        // @ts-ignore - status is present on function error
-        setErrorCode(error.status || 400);
-        setAnalytics(null);
-      } else {
-        setAnalytics(data.analytics);
-        setErrorCode(null);
-      }
+      const data = await demoAPI.getAnalytics();
+      setAnalytics(data.analytics || data);
     } catch (err: any) {
-      console.error('Unexpected analytics error:', err);
-      setErrorCode(400);
+      console.error('Analytics error:', err);
+      // Set default analytics in case of error
+      setAnalytics({
+        summary: { total_screenings: 0, total_candidates: 0, total_roles: 0 },
+        by_status: {},
+        by_outcome: { passed: 0, failed: 0 },
+        response_quality: { full_responses: 0, partial_responses: 0, no_responses: 0 },
+        performance_metrics: { avg_score: 0, avg_duration_seconds: 0, avg_attempts: 0 },
+        by_language: {},
+        by_location: {},
+        timeline: { today: 0, this_week: 0, this_month: 0 }
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const fixDemoSetup = async () => {
+  const exportToCSV = async () => {
     try {
-      await supabase.functions.invoke('provision-demo-user');
-      setLoading(true);
-      await fetchAnalytics();
-    } catch (e) {
-      console.error('Failed to fix demo setup:', e);
+      await demoAPI.exportAnalytics('csv');
+    } catch (error) {
+      console.error('Export error:', error);
     }
   };
 
-  const exportToCSV = async () => {
-    const { data } = await supabase.functions.invoke('api-analytics', {
-      body: { includeDetails: true }
-    });
-    
-    // Convert to CSV format
-    const csv = convertToCSV(data.screens);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `screening_report_${new Date().toISOString()}.csv`;
-    a.click();
-  };
-
-  const convertToCSV = (data: any[]) => {
-    if (!data || data.length === 0) return '';
-    const headers = Object.keys(data[0]).join(',');
-    const rows = data.map(row => Object.values(row).join(','));
-    return [headers, ...rows].join('\n');
-  };
-
   if (loading) return <div>Loading analytics...</div>;
-  if (errorCode === 401) {
-    return (
-      <Card className="p-6">
-        <CardHeader>
-          <CardTitle>Authentication required</CardTitle>
-          <CardDescription>Please start the demo to view analytics.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Link to="/demo-login">
-            <Button>Start Interactive Demo</Button>
-          </Link>
-        </CardContent>
-      </Card>
-    );
-  }
-  if (errorCode === 403) {
-    return (
-      <Card className="p-6">
-        <CardHeader>
-          <CardTitle>Organization not found</CardTitle>
-          <CardDescription>We couldn't find your organization. Fix your demo setup.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={fixDemoSetup}>Fix demo setup</Button>
-        </CardContent>
-      </Card>
-    );
-  }
   if (!analytics) return <div>No analytics data available</div>;
 
   const responseQualityData = [
@@ -136,6 +85,8 @@ export function EnhancedAnalyticsDashboard() {
     name: lang,
     count
   }));
+
+  const totalScreenings = analytics.summary.total_screenings || 1; // Prevent division by zero
 
   return (
     <div className="space-y-6">
@@ -161,12 +112,12 @@ export function EnhancedAnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {analytics.summary.total_screenings > 0 
-                ? `${Math.round((analytics.by_outcome.passed / analytics.summary.total_screenings) * 100)}%`
+              {totalScreenings > 0 
+                ? `${Math.round(((analytics.by_outcome.passed || 0) / totalScreenings) * 100)}%`
                 : '0%'}
             </div>
             <p className="text-xs text-muted-foreground">
-              {analytics.by_outcome.passed} passed
+              {analytics.by_outcome.passed || 0} passed
             </p>
           </CardContent>
         </Card>
@@ -193,8 +144,8 @@ export function EnhancedAnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {analytics.summary.total_screenings > 0
-                ? `${Math.round((analytics.response_quality.full_responses / analytics.summary.total_screenings) * 100)}%`
+              {totalScreenings > 0
+                ? `${Math.round((analytics.response_quality.full_responses / totalScreenings) * 100)}%`
                 : '0%'}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -241,7 +192,7 @@ export function EnhancedAnalyticsDashboard() {
                   <span className="text-sm font-medium">{analytics.response_quality.full_responses}</span>
                 </div>
                 <Progress 
-                  value={(analytics.response_quality.full_responses / analytics.summary.total_screenings) * 100} 
+                  value={(analytics.response_quality.full_responses / totalScreenings) * 100} 
                   className="h-2"
                 />
               </div>
@@ -251,7 +202,7 @@ export function EnhancedAnalyticsDashboard() {
                   <span className="text-sm font-medium">{analytics.response_quality.partial_responses}</span>
                 </div>
                 <Progress 
-                  value={(analytics.response_quality.partial_responses / analytics.summary.total_screenings) * 100} 
+                  value={(analytics.response_quality.partial_responses / totalScreenings) * 100} 
                   className="h-2 [&>div]:bg-warning"
                 />
               </div>
@@ -261,7 +212,7 @@ export function EnhancedAnalyticsDashboard() {
                   <span className="text-sm font-medium">{analytics.response_quality.no_responses}</span>
                 </div>
                 <Progress 
-                  value={(analytics.response_quality.no_responses / analytics.summary.total_screenings) * 100} 
+                  value={(analytics.response_quality.no_responses / totalScreenings) * 100} 
                   className="h-2 [&>div]:bg-destructive"
                 />
               </div>

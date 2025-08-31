@@ -3,9 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { supabase } from '@/integrations/supabase/client';
 import { Phone, Clock, User, Briefcase, Activity } from 'lucide-react';
 import { format } from 'date-fns';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 
 interface ActiveCall {
   id: string;
@@ -20,28 +20,11 @@ interface ActiveCall {
 export function CallMonitor() {
   const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([]);
   const [loading, setLoading] = useState(true);
+  const demoAPI = useDemoAPI();
 
   useEffect(() => {
     fetchActiveCalls();
     
-    // Set up real-time subscription
-    const subscription = supabase
-      .channel('active-calls')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'screens',
-          filter: 'status=in.(in_progress,scheduled)',
-        },
-        (payload) => {
-          console.log('Call status update:', payload);
-          fetchActiveCalls();
-        }
-      )
-      .subscribe();
-
     // Update duration every second for active calls
     const interval = setInterval(() => {
       setActiveCalls((prev) =>
@@ -53,39 +36,28 @@ export function CallMonitor() {
     }, 1000);
 
     return () => {
-      subscription.unsubscribe();
       clearInterval(interval);
     };
   }, []);
 
   const fetchActiveCalls = async () => {
     try {
-      const { data, error } = await supabase
-        .from('screens')
-        .select(`
-          id,
-          status,
-          started_at,
-          scheduled_at,
-          candidates!inner(name, phone),
-          roles!inner(title)
-        `)
-        .in('status', ['in_progress', 'scheduled'])
-        .order('started_at', { ascending: false });
-
-      if (error) throw error;
-
-      const calls: ActiveCall[] = (data || []).map((screen) => ({
-        id: screen.id,
-        candidateName: screen.candidates?.name || 'Unknown',
-        roleName: screen.roles?.title || 'Unknown Role',
-        status: screen.status,
-        startedAt: new Date(screen.started_at || screen.scheduled_at),
-        duration: screen.started_at 
-          ? Math.floor((Date.now() - new Date(screen.started_at).getTime()) / 1000)
-          : 0,
-        phoneNumber: screen.candidates?.phone || 'Unknown',
-      }));
+      // In demo mode, fetch screenings and filter active ones
+      const screenings = await demoAPI.getScreenings();
+      
+      const calls: ActiveCall[] = (screenings || [])
+        .filter((screen: any) => screen.status === 'in_progress' || screen.status === 'scheduled')
+        .map((screen: any) => ({
+          id: screen.id,
+          candidateName: screen.candidate?.name || 'Unknown',
+          roleName: screen.role?.title || 'Unknown Role',
+          status: screen.status,
+          startedAt: new Date(screen.started_at || screen.scheduled_at || Date.now()),
+          duration: screen.started_at 
+            ? Math.floor((Date.now() - new Date(screen.started_at).getTime()) / 1000)
+            : 0,
+          phoneNumber: screen.candidate?.phone || 'Unknown',
+        }));
 
       setActiveCalls(calls);
     } catch (error) {

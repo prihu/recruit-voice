@@ -39,7 +39,7 @@ import {
   FileText
 } from 'lucide-react';
 import { Role, ScreeningQuestion, FAQEntry } from '@/types';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function RoleDetail() {
@@ -47,6 +47,7 @@ export default function RoleDetail() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const isNewRole = id === 'new';
+  const demoAPI = useDemoAPI();
   
   const [loading, setLoading] = useState(!isNewRole);
   const [saving, setSaving] = useState(false);
@@ -78,83 +79,15 @@ export default function RoleDetail() {
   });
 
   useEffect(() => {
-    if (!isNewRole) {
+    if (!isNewRole && id) {
       fetchRole();
     }
   }, [id]);
 
   const fetchRole = async () => {
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user) {
-        navigate('/demo-login');
-        return;
-      }
-
-      let { data: orgMember, error: orgError } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', userData.user.id)
-        .maybeSingle();
-
-      if (orgError) {
-        console.error('Error fetching organization:', orgError);
-        toast({
-          title: "Error",
-          description: "Failed to fetch organization",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      if (!orgMember) {
-        // Try to auto-heal by ensuring organization exists
-        const { data: orgId, error: rpcError } = await supabase.rpc('ensure_demo_org_for_user');
-        if (rpcError || !orgId) {
-          console.error('Failed to ensure organization:', rpcError);
-          toast({
-            title: "Setup Required",
-            description: "Creating demo organization...",
-          });
-          // Retry after short delay
-          setTimeout(() => fetchRole(), 1000);
-          return;
-        }
-        // Re-fetch member with new org
-        const { data: newMember } = await supabase
-          .from('organization_members')
-          .select('organization_id')
-          .eq('user_id', userData.user.id)
-          .single();
-        
-        if (!newMember) {
-          toast({
-            title: "Error",
-            description: "Failed to create organization",
-            variant: "destructive"
-          });
-          return;
-        }
-        orgMember = newMember;
-      }
-
-      const { data: role, error } = await supabase
-        .from('roles')
-        .select('*')
-        .eq('id', id)
-        .eq('organization_id', orgMember.organization_id)
-        .single();
-
-      if (error || !role) {
-        toast({
-          title: "Error",
-          description: "Role not found",
-          variant: "destructive"
-        });
-        navigate('/roles');
-        return;
-      }
-
+      const role = await demoAPI.getRole(id!);
+      
       // Set form state from fetched role
       setTitle(role.title);
       setLocation(role.location);
@@ -177,6 +110,7 @@ export default function RoleDetail() {
         description: "Failed to load role",
         variant: "destructive"
       });
+      navigate('/roles');
     } finally {
       setLoading(false);
     }
@@ -195,57 +129,6 @@ export default function RoleDetail() {
 
     setSaving(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user) {
-        navigate('/demo-login');
-        return;
-      }
-
-      let { data: orgMember, error: orgError } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', userData.user.id)
-        .maybeSingle();
-
-      if (orgError) {
-        console.error('Error fetching organization:', orgError);
-        toast({
-          title: "Error",
-          description: "Failed to fetch organization",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      if (!orgMember) {
-        // Try to auto-heal by ensuring organization exists
-        const { data: orgId, error: rpcError } = await supabase.rpc('ensure_demo_org_for_user');
-        if (rpcError || !orgId) {
-          console.error('Failed to ensure organization:', rpcError);
-          toast({
-            title: "Setup Required",
-            description: "Please wait while we set up your organization...",
-          });
-          return;
-        }
-        // Re-fetch member with new org
-        const { data: newMember } = await supabase
-          .from('organization_members')
-          .select('organization_id')
-          .eq('user_id', userData.user.id)
-          .single();
-        
-        if (!newMember) {
-          toast({
-            title: "Error",
-            description: "Failed to create organization",
-            variant: "destructive"
-          });
-          return;
-        }
-        orgMember = newMember;
-      }
-
       const roleData = {
         title,
         location,
@@ -258,20 +141,11 @@ export default function RoleDetail() {
         faq: faq as any,
         evaluation_criteria: evaluationCriteria,
         call_window: callWindow as any,
-        organization_id: orgMember.organization_id,
-        user_id: userData.user.id
       };
 
       if (isNewRole) {
         // Create new role
-        const { data, error } = await supabase
-          .from('roles')
-          .insert(roleData)
-          .select()
-          .single();
-
-        if (error) throw error;
-
+        const data = await demoAPI.createRole(roleData);
         toast({
           title: "Success",
           description: "Role created successfully"
@@ -279,13 +153,7 @@ export default function RoleDetail() {
         navigate(`/roles/${data.id}`);
       } else {
         // Update existing role
-        const { error } = await supabase
-          .from('roles')
-          .update(roleData)
-          .eq('id', id);
-
-        if (error) throw error;
-
+        await demoAPI.updateRole(id!, roleData);
         toast({
           title: "Success",
           description: "Role updated successfully"
@@ -355,15 +223,8 @@ export default function RoleDetail() {
 
     setCreatingAgent(true);
     try {
-      const { data, error } = await supabase.functions.invoke('agent-manager', {
-        body: { 
-          action: agentId ? 'update' : 'create',
-          roleId: id
-        }
-      });
-
-      if (error) throw error;
-
+      const data = await demoAPI.createAgent(id);
+      
       if (data?.success) {
         setAgentId(data.agentId);
         setAgentStatus('synced');
@@ -373,15 +234,8 @@ export default function RoleDetail() {
           description: data.message || "Agent configured successfully",
         });
         
-        // Update the role in the database
-        await supabase
-          .from('roles')
-          .update({ 
-            voice_agent_id: data.agentId,
-            agent_sync_status: 'synced',
-            agent_error_message: null
-          })
-          .eq('id', id);
+        // Update the role with agent ID
+        await demoAPI.updateAgentConfig(id, data.agentId);
       }
     } catch (error: any) {
       console.error('Error with agent:', error);
@@ -389,7 +243,7 @@ export default function RoleDetail() {
       setAgentError(error.message || 'Failed to configure agent');
       toast({
         title: "Error",
-        description: "There is a problem in ElevenLabs, please contact support",
+        description: "Failed to configure agent in demo mode",
         variant: "destructive"
       });
     } finally {
@@ -500,15 +354,17 @@ export default function RoleDetail() {
           <TabsContent value="overview" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Role Information</CardTitle>
-                <CardDescription>Basic details about this screening role</CardDescription>
+                <CardTitle>Basic Information</CardTitle>
+                <CardDescription>
+                  Define the role title, location, and compensation details
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="title">Role Title *</Label>
-                    <Input 
-                      id="title" 
+                    <Input
+                      id="title"
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="e.g., Senior Software Engineer"
@@ -516,46 +372,27 @@ export default function RoleDetail() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="location">Location *</Label>
-                    <Input 
-                      id="location" 
+                    <Input
+                      id="location"
                       value={location}
                       onChange={(e) => setLocation(e.target.value)}
                       placeholder="e.g., Bangalore, India"
                     />
                   </div>
                 </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="summary">Role Summary</Label>
-                  <Textarea 
-                    id="summary" 
+                  <Textarea
+                    id="summary"
                     value={summary}
                     onChange={(e) => setSummary(e.target.value)}
-                    rows={4}
-                    className="resize-none"
-                    placeholder="Brief description of the role and key responsibilities..."
+                    placeholder="Provide a brief description of the role..."
+                    className="min-h-[100px]"
                   />
                 </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="min-salary">Minimum Salary</Label>
-                    <Input 
-                      id="min-salary" 
-                      type="number" 
-                      value={salaryMin}
-                      onChange={(e) => setSalaryMin(e.target.value)}
-                      placeholder="e.g., 2500000"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="max-salary">Maximum Salary</Label>
-                    <Input 
-                      id="max-salary" 
-                      type="number" 
-                      value={salaryMax}
-                      onChange={(e) => setSalaryMax(e.target.value)}
-                      placeholder="e.g., 4000000"
-                    />
-                  </div>
+
+                <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="currency">Currency</Label>
                     <Select value={salaryCurrency} onValueChange={setSalaryCurrency}>
@@ -566,22 +403,43 @@ export default function RoleDetail() {
                         <SelectItem value="INR">INR</SelectItem>
                         <SelectItem value="USD">USD</SelectItem>
                         <SelectItem value="EUR">EUR</SelectItem>
-                        <SelectItem value="GBP">GBP</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="salaryMin">Min Salary (Annual)</Label>
+                    <Input
+                      id="salaryMin"
+                      type="number"
+                      value={salaryMin}
+                      onChange={(e) => setSalaryMin(e.target.value)}
+                      placeholder="e.g., 1000000"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="salaryMax">Max Salary (Annual)</Label>
+                    <Input
+                      id="salaryMax"
+                      type="number"
+                      value={salaryMax}
+                      onChange={(e) => setSalaryMax(e.target.value)}
+                      placeholder="e.g., 2000000"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select value={status} onValueChange={(v) => setStatus(v as 'draft' | 'active')}>
-                    <SelectTrigger id="status">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="draft">Draft</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                    </SelectContent>
-                  </Select>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="status">Role Status</Label>
+                    <div className="text-sm text-muted-foreground">
+                      Active roles can receive applications
+                    </div>
+                  </div>
+                  <Switch
+                    id="status"
+                    checked={status === 'active'}
+                    onCheckedChange={(checked) => setStatus(checked ? 'active' : 'draft')}
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -592,49 +450,53 @@ export default function RoleDetail() {
             <Card>
               <CardHeader>
                 <CardTitle>Screening Questions</CardTitle>
-                <CardDescription>Configure the questions candidates will be asked during screening</CardDescription>
+                <CardDescription>
+                  Define questions that will be asked during the phone screening
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {questions.map((question, index) => (
-                  <div key={question.id} className="flex gap-3 p-4 border rounded-lg bg-card-hover">
-                    <div className="flex items-center">
-                      <GripVertical className="w-5 h-5 text-muted-foreground cursor-move" />
-                      <span className="ml-2 font-medium text-sm w-6">{index + 1}.</span>
-                    </div>
+                  <div key={question.id} className="flex gap-2 items-start p-4 border rounded-lg">
+                    <GripVertical className="w-5 h-5 text-muted-foreground mt-2 cursor-move" />
                     <div className="flex-1 space-y-3">
-                      <Input 
-                        value={question.text}
-                        onChange={(e) => updateQuestion(index, { text: e.target.value })}
-                        placeholder="Enter question text..."
-                        className="font-medium"
-                      />
-                      <div className="flex gap-3">
-                        <Select 
-                          value={question.type}
-                          onValueChange={(v) => updateQuestion(index, { type: v as ScreeningQuestion['type'] })}
-                        >
-                          <SelectTrigger className="w-40">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="yes_no">Yes/No</SelectItem>
-                            <SelectItem value="number">Number</SelectItem>
-                            <SelectItem value="multi_choice">Multiple Choice</SelectItem>
-                            <SelectItem value="free_text">Free Text</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <div className="flex items-center gap-2">
-                          <Switch 
-                            id={`required-${question.id}`} 
+                      <div className="space-y-2">
+                        <Label>Question {index + 1}</Label>
+                        <Textarea
+                          value={question.text}
+                          onChange={(e) => updateQuestion(index, { text: e.target.value })}
+                          placeholder="Enter your screening question..."
+                          className="min-h-[80px]"
+                        />
+                      </div>
+                      <div className="flex gap-4">
+                        <div className="flex-1">
+                          <Label>Type</Label>
+                          <Select
+                            value={question.type}
+                            onValueChange={(value) => updateQuestion(index, { type: value as any })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="yes_no">Yes/No</SelectItem>
+                              <SelectItem value="text">Text</SelectItem>
+                              <SelectItem value="number">Number</SelectItem>
+                              <SelectItem value="scale">Scale (1-5)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center gap-2 mt-6">
+                          <Switch
                             checked={question.required}
                             onCheckedChange={(checked) => updateQuestion(index, { required: checked })}
                           />
-                          <Label htmlFor={`required-${question.id}`} className="text-sm">Required</Label>
+                          <Label>Required</Label>
                         </div>
                       </div>
                     </div>
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="icon"
                       onClick={() => removeQuestion(index)}
                     >
@@ -642,10 +504,10 @@ export default function RoleDetail() {
                     </Button>
                   </div>
                 ))}
-                <Button 
-                  variant="outline" 
-                  className="w-full"
+                <Button
+                  variant="outline"
                   onClick={addQuestion}
+                  className="w-full"
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Add Question
@@ -659,160 +521,73 @@ export default function RoleDetail() {
             <Card>
               <CardHeader>
                 <CardTitle>Frequently Asked Questions</CardTitle>
-                <CardDescription>Prepare answers for common candidate questions</CardDescription>
+                <CardDescription>
+                  Prepare answers for common candidate questions
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {faq.map((entry, index) => (
-                  <div key={entry.id} className="space-y-3 p-4 border rounded-lg bg-card-hover">
+                  <div key={entry.id} className="p-4 border rounded-lg space-y-3">
                     <div className="space-y-2">
                       <Label>Question</Label>
-                      <Input 
+                      <Input
                         value={entry.question}
                         onChange={(e) => updateFaqEntry(index, { question: e.target.value })}
-                        placeholder="What do candidates often ask?"
+                        placeholder="e.g., What is the work culture like?"
                       />
                     </div>
                     <div className="space-y-2">
                       <Label>Answer</Label>
-                      <Textarea 
+                      <Textarea
                         value={entry.answer}
                         onChange={(e) => updateFaqEntry(index, { answer: e.target.value })}
-                        placeholder="Your response..."
-                        rows={3}
-                        className="resize-none"
+                        placeholder="Provide a comprehensive answer..."
+                        className="min-h-[100px]"
                       />
                     </div>
                     <div className="flex justify-end">
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="sm"
                         onClick={() => removeFaqEntry(index)}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Remove
                       </Button>
                     </div>
                   </div>
                 ))}
-                <Button 
-                  variant="outline" 
-                  className="w-full"
+                <Button
+                  variant="outline"
                   onClick={addFaqEntry}
+                  className="w-full"
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Add FAQ Entry
+                  Add FAQ
                 </Button>
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* Evaluation & Agent Tab */}
+          {/* Rules Tab */}
           <TabsContent value="rules" className="space-y-4">
             <Card>
               <CardHeader>
                 <CardTitle>Evaluation Criteria</CardTitle>
-                <CardDescription>Define screening criteria and pass/fail requirements in plain text</CardDescription>
+                <CardDescription>
+                  Define rules and criteria for evaluating candidates
+                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent>
                 <div className="space-y-2">
-                  <Label htmlFor="criteria">Evaluation Instructions</Label>
-                  <Textarea 
+                  <Label htmlFor="criteria">Evaluation Guidelines</Label>
+                  <Textarea
                     id="criteria"
                     value={evaluationCriteria}
                     onChange={(e) => setEvaluationCriteria(e.target.value)}
-                    rows={8}
-                    className="resize-none font-mono text-sm"
-                    placeholder="Example:&#10;- Candidate must have at least 3 years of React experience&#10;- Must be willing to relocate to Bangalore&#10;- Strong communication skills are required&#10;- Experience with TypeScript is a plus (but not mandatory)&#10;- Should be available to join within 30 days"
+                    placeholder="Define the criteria for passing the screening..."
+                    className="min-h-[200px]"
                   />
-                  <p className="text-sm text-muted-foreground">
-                    Write clear instructions that the AI agent will use to evaluate candidates. Be specific about requirements and preferences.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Voice Agent Configuration</CardTitle>
-                <CardDescription>AI agent that will conduct the screening calls</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {agentStatus === 'synced' && agentId && (
-                  <Alert className="bg-success/10 border-success/20">
-                    <CheckCircle className="h-4 w-4 text-success" />
-                    <AlertDescription className="text-success">
-                      Voice agent configured successfully
-                    </AlertDescription>
-                  </Alert>
-                )}
-                
-                {agentStatus === 'failed' && agentError && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      {agentError}
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {agentStatus === 'archived' && (
-                  <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      Agent has been archived due to inactivity
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                <div className="flex gap-2">
-                  <Button 
-                    onClick={createOrUpdateAgent}
-                    disabled={creatingAgent || isNewRole}
-                    className="flex-1"
-                  >
-                    {creatingAgent ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Configuring Agent...
-                      </>
-                    ) : (
-                      <>
-                        <Bot className="w-4 h-4 mr-2" />
-                        {agentId ? 'Update Agent' : 'Create Agent'}
-                      </>
-                    )}
-                  </Button>
-                  
-                  {agentId && agentStatus === 'synced' && (
-                    <Button 
-                      variant="outline"
-                      onClick={createOrUpdateAgent}
-                      disabled={creatingAgent}
-                    >
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Sync Changes
-                    </Button>
-                  )}
-                </div>
-
-                {isNewRole && (
-                  <p className="text-sm text-muted-foreground">
-                    Save the role first to create a voice agent
-                  </p>
-                )}
-
-                <div className="rounded-lg border p-4 bg-muted/50">
-                  <h4 className="font-medium mb-2 flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    What the agent will include:
-                  </h4>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    <li>• All role information (title, location, salary)</li>
-                    <li>• Your evaluation criteria</li>
-                    <li>• All screening questions</li>
-                    <li>• FAQ responses for candidate queries</li>
-                    <li>• Call window and timezone settings</li>
-                    <li>• Indian context awareness (languages, locations)</li>
-                  </ul>
                 </div>
               </CardContent>
             </Card>
@@ -823,43 +598,16 @@ export default function RoleDetail() {
             <Card>
               <CardHeader>
                 <CardTitle>Call Window Settings</CardTitle>
-                <CardDescription>Configure when and how screening calls are made</CardDescription>
+                <CardDescription>
+                  Configure when screening calls can be made
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Timezone</Label>
-                    <Select 
-                      value={callWindow.timezone}
-                      onValueChange={(v) => setCallWindow({ ...callWindow, timezone: v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Asia/Kolkata">Asia/Kolkata (IST)</SelectItem>
-                        <SelectItem value="America/New_York">America/New_York (EST)</SelectItem>
-                        <SelectItem value="Europe/London">Europe/London (GMT)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Max Attempts</Label>
-                    <Input 
-                      type="number" 
-                      value={callWindow.maxAttempts}
-                      onChange={(e) => setCallWindow({ 
-                        ...callWindow, 
-                        maxAttempts: parseInt(e.target.value) || 3 
-                      })}
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Start Time</Label>
-                    <Input 
-                      type="time" 
+                    <Input
+                      type="time"
                       value={callWindow.allowedHours.start}
                       onChange={(e) => setCallWindow({
                         ...callWindow,
@@ -869,8 +617,8 @@ export default function RoleDetail() {
                   </div>
                   <div className="space-y-2">
                     <Label>End Time</Label>
-                    <Input 
-                      type="time" 
+                    <Input
+                      type="time"
                       value={callWindow.allowedHours.end}
                       onChange={(e) => setCallWindow({
                         ...callWindow,
@@ -879,45 +627,79 @@ export default function RoleDetail() {
                     />
                   </div>
                 </div>
-                <div className="space-y-4">
-                  <Label>Allowed Days</Label>
-                  <div className="flex gap-2 flex-wrap">
-                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
-                      <Button
-                        key={day}
-                        variant={callWindow.allowedDays.includes(index) ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => {
-                          const days = callWindow.allowedDays.includes(index)
-                            ? callWindow.allowedDays.filter(d => d !== index)
-                            : [...callWindow.allowedDays, index].sort();
-                          setCallWindow({ ...callWindow, allowedDays: days });
-                        }}
-                      >
-                        {day}
-                      </Button>
-                    ))}
+                
+                <div className="space-y-2">
+                  <Label>Timezone</Label>
+                  <Select 
+                    value={callWindow.timezone} 
+                    onValueChange={(value) => setCallWindow({ ...callWindow, timezone: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Asia/Kolkata">India (IST)</SelectItem>
+                      <SelectItem value="America/New_York">US Eastern (EST)</SelectItem>
+                      <SelectItem value="America/Los_Angeles">US Pacific (PST)</SelectItem>
+                      <SelectItem value="Europe/London">UK (GMT)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Max Attempts</Label>
+                    <Input
+                      type="number"
+                      value={callWindow.maxAttempts}
+                      onChange={(e) => setCallWindow({
+                        ...callWindow,
+                        maxAttempts: parseInt(e.target.value)
+                      })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Attempt Spacing (minutes)</Label>
+                    <Input
+                      type="number"
+                      value={callWindow.attemptSpacing}
+                      onChange={(e) => setCallWindow({
+                        ...callWindow,
+                        attemptSpacing: parseInt(e.target.value)
+                      })}
+                    />
                   </div>
                 </div>
+
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label>SMS Reminders</Label>
-                      <p className="text-sm text-muted-foreground">Send SMS reminders before calls</p>
+                      <div className="text-sm text-muted-foreground">
+                        Send SMS reminders before scheduled calls
+                      </div>
                     </div>
-                    <Switch 
+                    <Switch
                       checked={callWindow.smsReminder}
-                      onCheckedChange={(checked) => setCallWindow({ ...callWindow, smsReminder: checked })}
+                      onCheckedChange={(checked) => setCallWindow({
+                        ...callWindow,
+                        smsReminder: checked
+                      })}
                     />
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label>Email Reminders</Label>
-                      <p className="text-sm text-muted-foreground">Send email reminders before calls</p>
+                      <div className="text-sm text-muted-foreground">
+                        Send email reminders before scheduled calls
+                      </div>
                     </div>
-                    <Switch 
+                    <Switch
                       checked={callWindow.emailReminder}
-                      onCheckedChange={(checked) => setCallWindow({ ...callWindow, emailReminder: checked })}
+                      onCheckedChange={(checked) => setCallWindow({
+                        ...callWindow,
+                        emailReminder: checked
+                      })}
                     />
                   </div>
                 </div>
@@ -929,26 +711,98 @@ export default function RoleDetail() {
           <TabsContent value="test" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Test Conversation</CardTitle>
-                <CardDescription>Simulate a screening conversation with your current configuration</CardDescription>
+                <CardTitle>Voice Agent Configuration</CardTitle>
+                <CardDescription>
+                  Configure and test your AI voice agent for phone screenings
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="text-center py-8">
-                  <PlayCircle className="w-12 h-12 mx-auto mb-4 text-primary" />
-                  <h3 className="text-lg font-semibold mb-2">Ready to test?</h3>
-                  <p className="text-muted-foreground mb-4">
-                    {isNewRole 
-                      ? "Save the role first to test the conversation flow"
-                      : "Start a simulated conversation to test your screening flow"}
-                  </p>
-                  <Button 
-                    className="bg-gradient-primary border-0"
-                    disabled={isNewRole}
+                {agentStatus === 'synced' && agentId ? (
+                  <Alert className="bg-success/10 border-success">
+                    <CheckCircle className="h-4 w-4 text-success" />
+                    <AlertDescription className="text-success">
+                      Voice agent is configured and ready. Agent ID: {agentId}
+                    </AlertDescription>
+                  </Alert>
+                ) : agentStatus === 'failed' ? (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      {agentError || 'Failed to configure voice agent'}
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert>
+                    <Bot className="h-4 w-4" />
+                    <AlertDescription>
+                      Voice agent not configured. Click below to set up the AI agent.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex gap-2">
+                  <Button
+                    onClick={createOrUpdateAgent}
+                    disabled={creatingAgent}
+                    className="flex-1"
                   >
-                    <PlayCircle className="w-4 h-4 mr-2" />
-                    Start Test Conversation
+                    {creatingAgent ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Configuring...
+                      </>
+                    ) : agentId ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Update Agent
+                      </>
+                    ) : (
+                      <>
+                        <Bot className="w-4 h-4 mr-2" />
+                        Configure Agent
+                      </>
+                    )}
                   </Button>
+                  
+                  {agentId && (
+                    <Button variant="outline">
+                      <PlayCircle className="w-4 h-4 mr-2" />
+                      Test Call
+                    </Button>
+                  )}
                 </div>
+
+                {agentId && (
+                  <div className="p-4 bg-muted rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Agent Details</span>
+                      <Badge variant="outline">Demo Mode</Badge>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Agent ID:</span>
+                        <span className="font-mono">{agentId}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Status:</span>
+                        <Badge 
+                          variant={agentStatus === 'synced' ? 'default' : 'secondary'}
+                          className={agentStatus === 'synced' ? 'bg-success text-success-foreground' : ''}
+                        >
+                          {agentStatus}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Questions:</span>
+                        <span>{questions.length}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">FAQs:</span>
+                        <span>{faq.length}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { CalendarIcon, Download, FileText, Table, FileJson, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import * as XLSX from 'xlsx';
 
 interface ExportDialogProps {
@@ -113,6 +113,7 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
     filters?.dateRange || { from: undefined, to: undefined }
   );
   const [exporting, setExporting] = useState(false);
+  const demoAPI = useDemoAPI();
 
   const handleTemplateChange = (newTemplate: ExportTemplate) => {
     setTemplate(newTemplate);
@@ -132,38 +133,20 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
     
     try {
       // Fetch analytics data with export details
-      const params = new URLSearchParams({
-        includeDetails: 'true',
-        format: format,
-      });
-      
-      if (dateRange.from) {
-        params.append('startDate', dateRange.from.toISOString().split('T')[0]);
-      }
-      if (dateRange.to) {
-        params.append('endDate', dateRange.to.toISOString().split('T')[0]);
-      }
-      
-      const { data, error } = await supabase.functions.invoke('api-analytics', {
-        body: {
-          includeDetails: true,
-          startDate: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
-          endDate: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
-          columns: selectedColumns,
-          includeTranscript,
-          includeAIAnalysis,
-        }
+      const data = await demoAPI.getAnalytics({
+        startDate: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
+        endDate: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
       });
 
-      if (error) throw error;
+      const screenings = data.screenings || [];
 
       // Process the export based on format
       if (format === 'excel') {
-        await exportToExcel(data.screenings || []);
+        await exportToExcel(screenings);
       } else if (format === 'csv') {
-        await exportToCSV(data.screenings || []);
+        await exportToCSV(screenings);
       } else if (format === 'json') {
-        await exportToJSON(data.screenings || []);
+        await exportToJSON(screenings);
       } else if (format === 'pdf') {
         // PDF export would require additional library
         toast({
@@ -174,7 +157,7 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
 
       toast({
         title: "Export Successful",
-        description: `Exported ${data.screenings?.length || 0} screening records`,
+        description: `Exported ${screenings.length} screening records`,
       });
       
       onOpenChange(false);
@@ -433,14 +416,14 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
               <Label className="flex items-center space-x-2 cursor-pointer">
                 <Checkbox
                   checked={includeTranscript}
-                  onCheckedChange={(checked) => setIncludeTranscript(checked as boolean)}
+                  onCheckedChange={(checked) => setIncludeTranscript(!!checked)}
                 />
                 <span>Include call transcripts</span>
               </Label>
               <Label className="flex items-center space-x-2 cursor-pointer">
                 <Checkbox
                   checked={includeAIAnalysis}
-                  onCheckedChange={(checked) => setIncludeAIAnalysis(checked as boolean)}
+                  onCheckedChange={(checked) => setIncludeAIAnalysis(!!checked)}
                 />
                 <span>Include AI analysis</span>
               </Label>
@@ -452,13 +435,21 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleExport} disabled={exporting || selectedColumns.length === 0}>
+          <Button 
+            onClick={handleExport} 
+            disabled={exporting || selectedColumns.length === 0}
+          >
             {exporting ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Exporting...
+              </>
             ) : (
-              <Download className="w-4 h-4 mr-2" />
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                Export
+              </>
             )}
-            Export {format.toUpperCase()}
           </Button>
         </DialogFooter>
       </DialogContent>
