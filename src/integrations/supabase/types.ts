@@ -121,6 +121,57 @@ export type Database = {
           },
         ]
       }
+      bulk_operations: {
+        Row: {
+          completed_at: string | null
+          completed_count: number
+          created_at: string
+          failed_count: number
+          id: string
+          operation_type: string
+          organization_id: string
+          role_id: string
+          settings: Json | null
+          started_at: string | null
+          status: string
+          total_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          completed_count?: number
+          created_at?: string
+          failed_count?: number
+          id?: string
+          operation_type?: string
+          organization_id: string
+          role_id: string
+          settings?: Json | null
+          started_at?: string | null
+          status?: string
+          total_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          completed_count?: number
+          created_at?: string
+          failed_count?: number
+          id?: string
+          operation_type?: string
+          organization_id?: string
+          role_id?: string
+          settings?: Json | null
+          started_at?: string | null
+          status?: string
+          total_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       call_logs: {
         Row: {
           call_sid: string | null
@@ -523,6 +574,7 @@ export type Database = {
           answers: Json | null
           attempts: number | null
           audio_url: string | null
+          bulk_operation_id: string | null
           candidate_id: string
           completed_at: string | null
           created_at: string | null
@@ -554,6 +606,7 @@ export type Database = {
           answers?: Json | null
           attempts?: number | null
           audio_url?: string | null
+          bulk_operation_id?: string | null
           candidate_id: string
           completed_at?: string | null
           created_at?: string | null
@@ -585,6 +638,7 @@ export type Database = {
           answers?: Json | null
           attempts?: number | null
           audio_url?: string | null
+          bulk_operation_id?: string | null
           candidate_id?: string
           completed_at?: string | null
           created_at?: string | null
@@ -611,6 +665,13 @@ export type Database = {
           voice_analytics?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "screens_bulk_operation_id_fkey"
+            columns: ["bulk_operation_id"]
+            isOneToOne: false
+            referencedRelation: "bulk_operations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "screens_candidate_id_fkey"
             columns: ["candidate_id"]

@@ -32,12 +32,15 @@ import {
   Download,
   BarChart3,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Users
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { ExportDialog } from '@/components/ExportDialog';
+import { BulkScreeningModal } from '@/components/BulkScreeningModal';
+import { ScreeningQueue } from '@/components/ScreeningQueue';
 
 interface Screen {
   id: string;
@@ -74,6 +77,7 @@ export default function Screens() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [bulkScreeningOpen, setBulkScreeningOpen] = useState(false);
 
   const fetchScreens = async (showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -232,10 +236,17 @@ export default function Screens() {
               <Download className="w-4 h-4 mr-2" />
               Export
             </Button>
+            <Button 
+              onClick={() => setBulkScreeningOpen(true)}
+              className="bg-gradient-primary border-0"
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Bulk Screening
+            </Button>
             <Link to="/roles">
-              <Button className="bg-gradient-primary border-0">
+              <Button variant="outline">
                 <Phone className="w-4 h-4 mr-2" />
-                Launch Screens
+                Individual Screen
               </Button>
             </Link>
           </div>
@@ -425,11 +436,28 @@ export default function Screens() {
           </Card>
         )}
         
+        {/* Screening Queue */}
+        <Card>
+          <div className="p-6">
+            <ScreeningQueue />
+          </div>
+        </Card>
+        
         {/* Export Dialog */}
         <ExportDialog 
           open={exportDialogOpen}
           onOpenChange={setExportDialogOpen}
           screenCount={filteredScreens.length}
+        />
+        
+        {/* Bulk Screening Modal */}
+        <BulkScreeningModal
+          open={bulkScreeningOpen}
+          onOpenChange={setBulkScreeningOpen}
+          onSuccess={() => {
+            setBulkScreeningOpen(false);
+            fetchScreens(false);
+          }}
         />
       </div>
     </AppLayout>
