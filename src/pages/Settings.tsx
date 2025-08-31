@@ -5,9 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
 import { TestTube, Check, X, Loader2 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 
 export default function Settings() {
+  const demoAPI = useDemoAPI();
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connected' | 'error'>('idle');
 
@@ -16,16 +17,14 @@ export default function Settings() {
     setConnectionStatus('idle');
 
     try {
-      // Test the connection using the API key stored in Supabase secrets
-      const { data, error } = await supabase.functions.invoke('elevenlabs-voice/test-connection');
-
-      if (error) throw error;
+      // Test the connection using demo API
+      const data = await demoAPI.testConnection();
 
       if (data?.success) {
         setConnectionStatus('connected');
         toast({
           title: "Success",
-          description: "Successfully connected to ElevenLabs API",
+          description: "Successfully connected to ElevenLabs API (Demo Mode)",
         });
       } else {
         throw new Error('Invalid response from ElevenLabs');

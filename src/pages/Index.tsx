@@ -19,10 +19,11 @@ import {
 } from 'lucide-react';
 import { CallMonitor } from '@/components/CallMonitor';
 import { EnhancedAnalyticsDashboard } from '@/components/EnhancedAnalyticsDashboard';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import type { Screen } from '@/types';
 
 export default function Index() {
+  const demoAPI = useDemoAPI();
   const [stats, setStats] = useState({
     activeRoles: 0,
     totalScreens: 0,
@@ -38,60 +39,45 @@ export default function Index() {
   }, []);
 
   const fetchAnalytics = async () => {
-    const orgId = await getUserOrganization();
-    if (!orgId) return;
+    try {
+      // Fetch roles
+      const roles = await demoAPI.getRoles();
+      const activeRoles = roles.filter((r: any) => r.status === 'active').length;
 
-    // Fetch active roles count
-    const { count: rolesCount } = await supabase
-      .from('roles')
-      .select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
-      .eq('status', 'active');
+      // Fetch screens
+      const { screens } = await demoAPI.getScreenings();
+      const totalScreens = screens.length;
+      const pendingScreens = screens.filter((s: any) => s.status === 'pending' || s.status === 'scheduled').length;
+      const passedScreens = screens.filter((s: any) => s.outcome === 'pass').length;
+      const completedScreens = screens.filter((s: any) => s.status === 'completed').length;
+      const passRate = completedScreens > 0 ? Math.round((passedScreens / completedScreens) * 100) : 0;
 
-    // Fetch screens stats
-    const { data: screensData, count: totalScreens } = await supabase
-      .from('screens')
-      .select('status, outcome, duration_seconds', { count: 'exact' })
-      .eq('organization_id', orgId);
+      // Calculate time saved (assuming 15 min per screen)
+      const timeSaved = Math.round(totalScreens * 0.25); // 15 minutes = 0.25 hours
 
-    const pendingScreens = screensData?.filter(s => s.status === 'pending' || s.status === 'scheduled').length || 0;
-    const passedScreens = screensData?.filter(s => s.outcome === 'pass').length || 0;
-    const completedScreens = screensData?.filter(s => s.status === 'completed').length || 0;
-    const passRate = completedScreens > 0 ? Math.round((passedScreens / completedScreens) * 100) : 0;
-
-    // Calculate time saved (assuming 15 min per screen)
-    const timeSaved = Math.round((totalScreens || 0) * 0.25); // 15 minutes = 0.25 hours
-
-    setStats({
-      activeRoles: rolesCount || 0,
-      totalScreens: totalScreens || 0,
-      pendingScreens,
-      passRate,
-      timeSaved,
-      recentActivity: []
-    });
+      setStats({
+        activeRoles,
+        totalScreens,
+        pendingScreens,
+        passRate,
+        timeSaved,
+        recentActivity: []
+      });
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+    }
   };
 
   const fetchRecentActivity = async () => {
-    const orgId = await getUserOrganization();
-    if (!orgId) return;
+    try {
+      const { screens } = await demoAPI.getScreenings();
+      
+      // Sort by created_at and take top 5
+      const recentScreens = screens
+        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 5);
 
-    const { data } = await supabase
-      .from('screens')
-      .select(`
-        id,
-        status,
-        outcome,
-        created_at,
-        candidate:candidates(name),
-        role:roles(title)
-      `)
-      .eq('organization_id', orgId)
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    if (data) {
-      const activities = data.map(screen => ({
+      const activities = recentScreens.map((screen: any) => ({
         name: screen.candidate?.name || 'Unknown',
         role: screen.role?.title || 'Unknown Role',
         status: screen.status,
@@ -100,25 +86,9 @@ export default function Index() {
       }));
       
       setStats(prev => ({ ...prev, recentActivity: activities }));
+    } catch (error) {
+      console.error('Error fetching recent activity:', error);
     }
-  };
-
-  const getUserOrganization = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-
-    const { data, error } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error fetching organization:', error);
-      return null;
-    }
-
-    return data?.organization_id;
   };
 
   const getRelativeTime = (timestamp: string) => {

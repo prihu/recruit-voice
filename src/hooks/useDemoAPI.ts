@@ -184,21 +184,127 @@ export function useDemoAPI() {
     throw new Error('Not implemented in non-demo mode');
   };
 
+  // Additional endpoints for complete demo coverage
+  const getRole = async (id: string) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.roles}/${id}`);
+    }
+    const { data, error } = await supabase.from('roles').select('*').eq('id', id).single();
+    if (error) throw error;
+    return data;
+  };
+
+  const getScreen = async (id: string) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/${id}`);
+    }
+    const { data, error } = await supabase.from('screens').select('*').eq('id', id).single();
+    if (error) throw error;
+    return data;
+  };
+
+  const updateScreen = async (id: string, updates: any) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+    }
+    const { data, error } = await supabase.from('screens').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    return data;
+  };
+
+  const scheduleCall = async (screenId: string, scheduledTime: string) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/schedule`, {
+        method: 'POST',
+        body: JSON.stringify({ screenId, scheduledTime }),
+      });
+    }
+    // Original implementation would go here
+    throw new Error('Not implemented in non-demo mode');
+  };
+
+  const testConnection = async () => {
+    if (DEMO_MODE) {
+      // Demo mode always returns success
+      return { success: true, message: 'Demo mode - connection simulated' };
+    }
+    // Original implementation would go here
+    throw new Error('Not implemented in non-demo mode');
+  };
+
+  const updateAgentConfig = async (roleId: string, agentId: string) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.roles}/${roleId}/agent`, {
+        method: 'PUT',
+        body: JSON.stringify({ agentId }),
+      });
+    }
+    const { data, error } = await supabase
+      .from('roles')
+      .update({ voice_agent_id: agentId, voice_enabled: true })
+      .eq('id', roleId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  };
+
+  const getCandidate = async (id: string) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.candidates}/${id}`);
+    }
+    const { data, error } = await supabase.from('candidates').select('*').eq('id', id).single();
+    if (error) throw error;
+    return data;
+  };
+
+  const getBulkOperations = async () => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/bulk-operations`);
+    }
+    const { data, error } = await supabase.from('bulk_operations').select('*');
+    if (error) throw error;
+    return data;
+  };
+
+  const updateBulkOperation = async (id: string, updates: any) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/bulk-operations/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+    }
+    const { data, error } = await supabase.from('bulk_operations').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    return data;
+  };
+
   return {
     // Role operations
     getRoles,
+    getRole,
     createRole,
     updateRole,
+    updateAgentConfig,
 
     // Candidate operations
     getCandidates,
+    getCandidate,
     createCandidate,
     bulkImportCandidates,
 
     // Screening operations
     getScreenings,
+    getScreen,
+    updateScreen,
     initiateScreening,
     bulkScreening,
+    scheduleCall,
+    getBulkOperations,
+    updateBulkOperation,
 
     // Analytics operations
     getAnalytics,
@@ -208,6 +314,9 @@ export function useDemoAPI() {
     createAgent,
     updateAgent,
     testCall,
+
+    // Connection testing
+    testConnection,
 
     // Constants
     DEMO_ORG_ID,

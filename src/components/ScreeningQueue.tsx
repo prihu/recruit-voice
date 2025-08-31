@@ -17,11 +17,12 @@ import {
   Activity,
   Loader2
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { useToast } from '@/components/ui/use-toast';
 import { format } from 'date-fns';
 
 export function ScreeningQueue() {
+  const demoAPI = useDemoAPI();
   const [bulkOperations, setBulkOperations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,80 +30,16 @@ export function ScreeningQueue() {
 
   useEffect(() => {
     fetchBulkOperations();
-    
-    // Set up real-time subscription
-    const channel = supabase
-      .channel('bulk-operations-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'bulk_operations'
-        },
-        () => {
-          fetchBulkOperations();
-        }
-      )
-      .subscribe();
-
-    // Also subscribe to screens table for progress updates
-    const screensChannel = supabase
-      .channel('screens-bulk-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'screens',
-          filter: 'bulk_operation_id=not.is.null'
-        },
-        () => {
-          fetchBulkOperations();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(screensChannel);
-    };
+    // Note: Realtime subscriptions removed for demo mode
+    // In demo mode, users can manually refresh to see updates
   }, []);
 
   const fetchBulkOperations = async () => {
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) return;
-
-      const { data: orgData } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', userData.user.id)
-        .single();
-
-      if (!orgData) return;
-
-      const { data: operations, error } = await supabase
-        .from('bulk_operations')
-        .select(`
-          *,
-          roles (
-            title,
-            location
-          ),
-          screens!bulk_operation_id (
-            id,
-            status,
-            outcome
-          )
-        `)
-        .eq('organization_id', orgData.organization_id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const operations = await demoAPI.getBulkOperations();
 
       // Calculate real-time stats for each operation
-      const operationsWithStats = operations?.map(op => {
+      const operationsWithStats = operations?.map((op: any) => {
         const screens = op.screens || [];
         const completed = screens.filter((s: any) => s.status === 'completed').length;
         const inProgress = screens.filter((s: any) => s.status === 'in_progress').length;
@@ -128,17 +65,15 @@ export function ScreeningQueue() {
 
   const handlePause = async (operationId: string) => {
     try {
-      const { error } = await supabase
-        .from('bulk_operations')
-        .update({ status: 'paused' })
-        .eq('id', operationId);
-
-      if (error) throw error;
+      await demoAPI.updateBulkOperation(operationId, { status: 'paused' });
 
       toast({
-        title: 'Operation Paused',
-        description: 'The bulk screening operation has been paused',
+        title: 'Operation Paused (Demo)',
+        description: 'The bulk screening operation has been paused in demo mode',
       });
+      
+      // Refresh data to show updated status
+      fetchBulkOperations();
     } catch (error) {
       console.error('Error pausing operation:', error);
       toast({
@@ -151,25 +86,15 @@ export function ScreeningQueue() {
 
   const handleResume = async (operationId: string) => {
     try {
-      const { error } = await supabase
-        .from('bulk_operations')
-        .update({ status: 'in_progress' })
-        .eq('id', operationId);
-
-      if (error) throw error;
-
-      // Trigger the edge function to resume processing
-      await supabase.functions.invoke('process-bulk-screenings', {
-        body: {
-          bulk_operation_id: operationId,
-          action: 'resume'
-        }
-      });
+      await demoAPI.updateBulkOperation(operationId, { status: 'in_progress' });
 
       toast({
-        title: 'Operation Resumed',
-        description: 'The bulk screening operation has been resumed',
+        title: 'Operation Resumed (Demo)',
+        description: 'The bulk screening operation has been resumed in demo mode',
       });
+      
+      // Refresh data to show updated status
+      fetchBulkOperations();
     } catch (error) {
       console.error('Error resuming operation:', error);
       toast({
@@ -182,20 +107,18 @@ export function ScreeningQueue() {
 
   const handleCancel = async (operationId: string) => {
     try {
-      const { error } = await supabase
-        .from('bulk_operations')
-        .update({ 
-          status: 'cancelled',
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', operationId);
-
-      if (error) throw error;
+      await demoAPI.updateBulkOperation(operationId, { 
+        status: 'cancelled',
+        completed_at: new Date().toISOString()
+      });
 
       toast({
-        title: 'Operation Cancelled',
-        description: 'The bulk screening operation has been cancelled',
+        title: 'Operation Cancelled (Demo)',
+        description: 'The bulk screening operation has been cancelled in demo mode',
       });
+      
+      // Refresh data to show updated status
+      fetchBulkOperations();
     } catch (error) {
       console.error('Error cancelling operation:', error);
       toast({
@@ -208,38 +131,17 @@ export function ScreeningQueue() {
 
   const handleRetryFailed = async (operationId: string) => {
     try {
-      // Get failed screens for this operation
-      const { data: failedScreens, error: fetchError } = await supabase
-        .from('screens')
-        .select('candidate_id')
-        .eq('bulk_operation_id', operationId)
-        .eq('status', 'failed');
-
-      if (fetchError) throw fetchError;
-
-      if (!failedScreens || failedScreens.length === 0) {
-        toast({
-          title: 'No Failed Calls',
-          description: 'There are no failed calls to retry',
-        });
-        return;
-      }
-
-      // Trigger retry for failed screens
-      const { error } = await supabase.functions.invoke('process-bulk-screenings', {
-        body: {
-          bulk_operation_id: operationId,
-          action: 'retry_failed',
-          candidate_ids: failedScreens.map(s => s.candidate_id)
-        }
-      });
-
-      if (error) throw error;
-
+      // In demo mode, simulate retry functionality
       toast({
-        title: 'Retrying Failed Calls',
-        description: `Retrying ${failedScreens.length} failed calls`,
+        title: 'Retrying Failed Calls (Demo)',
+        description: 'Retrying failed calls in demo mode',
       });
+      
+      // Simulate the retry by updating the operation status
+      await demoAPI.updateBulkOperation(operationId, { status: 'in_progress' });
+      
+      // Refresh data
+      fetchBulkOperations();
     } catch (error) {
       console.error('Error retrying failed calls:', error);
       toast({

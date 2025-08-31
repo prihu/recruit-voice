@@ -28,12 +28,13 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { VoiceScreening } from '@/components/VoiceScreening';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { toast } from '@/hooks/use-toast';
 import { Screen, Role, Candidate, CallWindow, TranscriptEntry, ScreeningQuestion, FAQEntry, ScoringRule } from '@/types';
 
 export default function ScreenDetail() {
   const { id } = useParams();
+  const demoAPI = useDemoAPI();
   const [screen, setScreen] = useState<Screen | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
@@ -49,31 +50,13 @@ export default function ScreenDetail() {
     setIsLoading(true);
     try {
       // Fetch screen data
-      const { data: screenData, error: screenError } = await supabase
-        .from('screens')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (screenError) throw screenError;
+      const screenData = await demoAPI.getScreen(id);
 
       // Fetch role data
-      const { data: roleData, error: roleError } = await supabase
-        .from('roles')
-        .select('*')
-        .eq('id', screenData.role_id)
-        .single();
-
-      if (roleError) throw roleError;
+      const roleData = await demoAPI.getRole(screenData.role_id);
 
       // Fetch candidate data
-      const { data: candidateData, error: candidateError } = await supabase
-        .from('candidates')
-        .select('*')
-        .eq('id', screenData.candidate_id)
-        .single();
-
-      if (candidateError) throw candidateError;
+      const candidateData = await demoAPI.getCandidate(screenData.candidate_id);
 
       // Transform the data to match our types
       const transformedScreen: Screen = {

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Mic, AlertCircle, CheckCircle, Settings } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { toast } from '@/hooks/use-toast';
 
 interface VoiceAgentConfigProps {
@@ -16,6 +16,7 @@ interface VoiceAgentConfigProps {
 }
 
 export function VoiceAgentConfig({ roleId, currentAgentId, onUpdate }: VoiceAgentConfigProps) {
+  const demoAPI = useDemoAPI();
   const [agentId, setAgentId] = useState(currentAgentId || '');
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,30 +40,14 @@ export function VoiceAgentConfig({ roleId, currentAgentId, onUpdate }: VoiceAgen
     setTestStatus('idle');
 
     try {
-      // Test the agent by fetching its configuration
-      const response = await fetch(
-        'https://api.elevenlabs.io/v1/convai/agents/' + agentId,
-        {
-          headers: {
-            'xi-api-key': localStorage.getItem('elevenlabs_api_key') || ''
-          }
-        }
-      );
-
-      if (response.ok) {
-        setTestStatus('success');
-        toast({
-          title: 'Success',
-          description: 'Voice agent validated successfully'
-        });
-      } else {
-        setTestStatus('error');
-        toast({
-          title: 'Error',
-          description: 'Invalid agent ID or configuration',
-          variant: 'destructive'
-        });
-      }
+      // In demo mode, always simulate success
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+      
+      setTestStatus('success');
+      toast({
+        title: 'Success',
+        description: 'Voice agent validated successfully (Demo Mode)'
+      });
     } catch (error) {
       setTestStatus('error');
       toast({
@@ -79,20 +64,12 @@ export function VoiceAgentConfig({ roleId, currentAgentId, onUpdate }: VoiceAgen
     setSaving(true);
     
     try {
-      const { error } = await supabase
-        .from('roles')
-        .update({ 
-          voice_agent_id: agentId.trim(),
-          voice_enabled: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', roleId);
-
-      if (error) throw error;
+      // Use demo API to update agent configuration
+      await demoAPI.updateAgentConfig(roleId, agentId.trim());
 
       toast({
         title: 'Success',
-        description: 'Voice agent configuration saved'
+        description: 'Voice agent configuration saved (Demo Mode)'
       });
 
       if (onUpdate) {

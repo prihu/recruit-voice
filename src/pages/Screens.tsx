@@ -36,7 +36,7 @@ import {
   Users
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { toast } from '@/hooks/use-toast';
 import { ExportDialog } from '@/components/ExportDialog';
 import { BulkScreeningModal } from '@/components/BulkScreeningModal';
@@ -70,6 +70,7 @@ interface Screen {
 }
 
 export default function Screens() {
+  const demoAPI = useDemoAPI();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [outcomeFilter, setOutcomeFilter] = useState('all');
@@ -84,17 +85,14 @@ export default function Screens() {
     else setRefreshing(true);
 
     try {
-      const { data, error } = await supabase
-        .from('screens')
-        .select(`
-          *,
-          candidate:candidates(id, name, phone, email),
-          role:roles(id, title, location, call_window)
-        `)
-        .order('updated_at', { ascending: false });
-
-      if (error) throw error;
-      setScreens(data || []);
+      const { screens } = await demoAPI.getScreenings();
+      
+      // Sort by updated_at descending
+      const sortedScreens = screens.sort((a: any, b: any) => 
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      );
+      
+      setScreens(sortedScreens);
     } catch (error: any) {
       console.error('Error fetching screens:', error);
       toast({
@@ -110,26 +108,8 @@ export default function Screens() {
 
   useEffect(() => {
     fetchScreens();
-
-    // Set up realtime subscription
-    const channel = supabase
-      .channel('screens-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'screens'
-        },
-        () => {
-          fetchScreens(false);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    // Note: Realtime subscriptions removed for demo mode
+    // In demo mode, users can manually refresh to see updates
   }, []);
 
   const filteredScreens = screens.filter(screen => {

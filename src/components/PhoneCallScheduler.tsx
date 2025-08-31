@@ -5,7 +5,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { format } from 'date-fns';
 import { CalendarIcon, Clock, Phone } from 'lucide-react';
 import { Candidate, Role } from '@/types';
@@ -17,6 +17,7 @@ interface PhoneCallSchedulerProps {
 }
 
 export function PhoneCallScheduler({ candidate, role, onScheduled }: PhoneCallSchedulerProps) {
+  const demoAPI = useDemoAPI();
   const [date, setDate] = useState<Date>();
   const [time, setTime] = useState<string>();
   const [isScheduling, setIsScheduling] = useState(false);
@@ -48,43 +49,15 @@ export function PhoneCallScheduler({ candidate, role, onScheduled }: PhoneCallSc
       const scheduledTime = new Date(date);
       scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-      // Get organization ID
-      const { data: orgData } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
-        .single();
-
-      // Create screen record
-      const { data: screenData, error: screenError } = await supabase
-        .from('screens')
-        .insert({
-          role_id: role.id,
-          candidate_id: candidate.id,
-          user_id: (await supabase.auth.getUser()).data.user?.id,
-          organization_id: orgData?.organization_id,
-          status: 'scheduled',
-          scheduled_at: scheduledTime.toISOString(),
-          screening_type: 'phone',
-        })
-        .select()
-        .single();
-
-      if (screenError) throw screenError;
-
-      // Schedule the call via edge function
-      const { error: scheduleError } = await supabase.functions.invoke('elevenlabs-voice/schedule-call', {
-        body: {
-          screenId: screenData.id,
-          scheduledTime: scheduledTime.toISOString(),
-        },
-      });
-
-      if (scheduleError) throw scheduleError;
+      // Schedule the call using demo API
+      await demoAPI.scheduleCall(
+        'temp-screen-id', // In demo mode, we use a temporary ID
+        scheduledTime.toISOString()
+      );
 
       toast({
-        title: 'Call Scheduled',
-        description: `Phone screening scheduled for ${format(scheduledTime, 'PPp')}`,
+        title: 'Call Scheduled (Demo)',
+        description: `Phone screening scheduled for ${format(scheduledTime, 'PPp')} in demo mode`,
       });
 
       onScheduled?.();

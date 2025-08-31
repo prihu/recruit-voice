@@ -24,7 +24,7 @@ This application provides a fully functional demo mode for the AI Phone Screenin
 
 #### Core Infrastructure
 - [x] `src/lib/demoConstants.ts` - Central configuration for demo mode
-- [x] `src/hooks/useDemoAPI.ts` - Main hook for demo API operations
+- [x] `src/hooks/useDemoAPI.ts` - Main hook for demo API operations (EXTENDED with all missing endpoints)
 - [x] `src/pages/DemoLogin.tsx` - Demo entry point (no actual auth)
 - [x] `src/contexts/AuthContext.tsx` - Modified to support demo mode
 
@@ -32,6 +32,15 @@ This application provides a fully functional demo mode for the AI Phone Screenin
 - [x] `src/pages/Roles.tsx` - Uses demo API for roles management
 - [x] `src/pages/RoleDetail.tsx` - Uses demo API for role details
 - [x] `src/pages/CandidateImport.tsx` - Uses demo API for candidate operations
+- [x] `src/pages/Index.tsx` - UPDATED: Now uses demo API instead of direct Supabase
+- [x] `src/pages/Screens.tsx` - UPDATED: Now uses demo API, removed realtime subscriptions
+- [x] `src/pages/ScreenDetail.tsx` - UPDATED: Now uses demo API for all data fetching
+- [x] `src/pages/Settings.tsx` - UPDATED: Now uses demo API for connection testing
+
+#### Components Updated for Demo Mode
+- [x] `src/components/PhoneCallScheduler.tsx` - UPDATED: Uses demo API, removed auth checks
+- [x] `src/components/VoiceAgentConfig.tsx` - UPDATED: Uses demo API, removed localStorage
+- [x] `src/components/ScreeningQueue.tsx` - UPDATED: Uses demo API, removed realtime
 
 #### Edge Functions Created
 - [x] `demo-api-roles` - Handles role CRUD operations
@@ -40,30 +49,25 @@ This application provides a fully functional demo mode for the AI Phone Screenin
 - [x] `demo-api-analytics` - Provides analytics data
 - [x] `demo-api-agent-manager` - Manages ElevenLabs agents
 
-### ⚠️ Pending Updates
+#### Demo API Endpoints Added
+- [x] `getRole(id)` - Fetch single role details
+- [x] `getScreen(id)` - Fetch single screen details
+- [x] `updateScreen(id, updates)` - Update screen status
+- [x] `scheduleCall(screenId, scheduledTime)` - Schedule phone calls
+- [x] `testConnection()` - Test ElevenLabs connection
+- [x] `updateAgentConfig(roleId, agentId)` - Update voice agent configuration
+- [x] `getCandidate(id)` - Fetch single candidate details
+- [x] `getBulkOperations()` - Fetch bulk screening operations
+- [x] `updateBulkOperation(id, updates)` - Update bulk operation status
 
-#### Pages Still Using Direct Supabase
-- [ ] `src/pages/Index.tsx` - Still has `supabase.auth.getUser()` calls
-- [ ] `src/pages/Screens.tsx` - Uses direct Supabase queries and realtime
-- [ ] `src/pages/ScreenDetail.tsx` - Direct Supabase queries for screen details
-- [ ] `src/pages/Settings.tsx` - Uses localStorage for API keys
+### ⚠️ Remaining Components to Check
 
-#### Components Needing Updates
-- [ ] `src/components/PhoneCallScheduler.tsx` - Has auth checks
-- [ ] `src/components/VoiceAgentConfig.tsx` - Uses localStorage for ElevenLabs key
+#### Components That May Need Updates
 - [ ] `src/components/BulkScreeningModal.tsx` - May need demo API integration
-- [ ] `src/components/ScreeningQueue.tsx` - Needs demo API integration
-- [ ] `src/components/EnhancedAnalyticsDashboard.tsx` - Direct Supabase queries
-- [ ] `src/components/CallMonitor.tsx` - May have direct queries
+- [ ] `src/components/EnhancedAnalyticsDashboard.tsx` - Check for direct Supabase queries
+- [ ] `src/components/CallMonitor.tsx` - Check for direct queries
 - [ ] `src/components/ExportDialog.tsx` - Ensure uses demo data
 - [ ] `src/components/QuickActionsMenu.tsx` - Check for direct queries
-
-#### Missing Demo API Endpoints
-- [ ] `getScreen(id)` - Fetch single screen details
-- [ ] `updateScreen(id, updates)` - Update screen status
-- [ ] `scheduleCall(screenId, scheduledTime)` - Schedule phone calls
-- [ ] `testConnection()` - Test ElevenLabs connection
-- [ ] `updateAgentConfig(roleId, agentId)` - Update voice agent configuration
 
 ## Technical Details
 
