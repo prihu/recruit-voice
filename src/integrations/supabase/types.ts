@@ -151,6 +151,7 @@ export type Database = {
           name: string
           organization_id: string | null
           phone: string
+          preferred_language: string | null
           salary_expectation: number | null
           skills: string[] | null
           updated_at: string | null
@@ -167,6 +168,7 @@ export type Database = {
           name: string
           organization_id?: string | null
           phone: string
+          preferred_language?: string | null
           salary_expectation?: number | null
           skills?: string[] | null
           updated_at?: string | null
@@ -183,6 +185,7 @@ export type Database = {
           name?: string
           organization_id?: string | null
           phone?: string
+          preferred_language?: string | null
           salary_expectation?: number | null
           skills?: string[] | null
           updated_at?: string | null
@@ -233,28 +236,37 @@ export type Database = {
       organizations: {
         Row: {
           company_domain: string | null
+          country: string | null
           created_at: string
+          currency: string | null
           id: string
           name: string
           settings: Json | null
+          timezone: string | null
           twilio_config: Json | null
           updated_at: string
         }
         Insert: {
           company_domain?: string | null
+          country?: string | null
           created_at?: string
+          currency?: string | null
           id?: string
           name: string
           settings?: Json | null
+          timezone?: string | null
           twilio_config?: Json | null
           updated_at?: string
         }
         Update: {
           company_domain?: string | null
+          country?: string | null
           created_at?: string
+          currency?: string | null
           id?: string
           name?: string
           settings?: Json | null
+          timezone?: string | null
           twilio_config?: Json | null
           updated_at?: string
         }
@@ -461,8 +473,10 @@ export type Database = {
           id: string
           organization_id: string | null
           outcome: string | null
+          questions_answered: number | null
           reasons: string[] | null
           recording_url: string | null
+          response_completeness: number | null
           role_id: string
           scheduled_at: string | null
           score: number | null
@@ -470,6 +484,7 @@ export type Database = {
           session_id: string | null
           started_at: string | null
           status: string | null
+          total_questions: number | null
           transcript: Json | null
           updated_at: string | null
           user_id: string
@@ -488,8 +503,10 @@ export type Database = {
           id?: string
           organization_id?: string | null
           outcome?: string | null
+          questions_answered?: number | null
           reasons?: string[] | null
           recording_url?: string | null
+          response_completeness?: number | null
           role_id: string
           scheduled_at?: string | null
           score?: number | null
@@ -497,6 +514,7 @@ export type Database = {
           session_id?: string | null
           started_at?: string | null
           status?: string | null
+          total_questions?: number | null
           transcript?: Json | null
           updated_at?: string | null
           user_id: string
@@ -515,8 +533,10 @@ export type Database = {
           id?: string
           organization_id?: string | null
           outcome?: string | null
+          questions_answered?: number | null
           reasons?: string[] | null
           recording_url?: string | null
+          response_completeness?: number | null
           role_id?: string
           scheduled_at?: string | null
           score?: number | null
@@ -524,6 +544,7 @@ export type Database = {
           session_id?: string | null
           started_at?: string | null
           status?: string | null
+          total_questions?: number | null
           transcript?: Json | null
           updated_at?: string | null
           user_id?: string

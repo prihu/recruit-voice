@@ -5,3 +5,18 @@ verify_jwt = true
 
 [functions.process-scheduled-calls]
 verify_jwt = false
+
+[functions.provision-demo-user]
+verify_jwt = false
+
+[functions.api-roles]
+verify_jwt = true
+
+[functions.api-candidates]
+verify_jwt = true
+
+[functions.api-screenings]
+verify_jwt = true
+
+[functions.api-analytics]
+verify_jwt = true

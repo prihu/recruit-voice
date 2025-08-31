@@ -18,6 +18,7 @@ import {
   Shield
 } from 'lucide-react';
 import { CallMonitor } from '@/components/CallMonitor';
+import { EnhancedAnalyticsDashboard } from '@/components/EnhancedAnalyticsDashboard';
 import { supabase } from '@/integrations/supabase/client';
 import type { Screen } from '@/types';
 
@@ -280,6 +281,9 @@ export default function Index() {
 
         {/* Call Monitor */}
         <CallMonitor />
+        
+        {/* Analytics Dashboard */}
+        <EnhancedAnalyticsDashboard />
 
         {/* Recent Activity */}
         <Card>

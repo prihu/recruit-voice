@@ -49,14 +49,14 @@ export default function CandidateImport() {
 
   const systemFields = [
     { value: 'name', label: 'Name (Required)' },
-    { value: 'phone', label: 'Phone Number' },
+    { value: 'phone', label: 'Phone Number (Indian)' },
     { value: 'email', label: 'Email (Required)' },
     { value: 'external_id', label: 'External ID' },
     { value: 'skills', label: 'Skills (semicolon separated)' },
     { value: 'exp_years', label: 'Experience Years' },
     { value: 'location_pref', label: 'Location Preference' },
-    { value: 'salary_expectation', label: 'Salary Expectation' },
-    { value: 'language', label: 'Language' }
+    { value: 'salary_expectation', label: 'Salary Expectation (INR)' },
+    { value: 'preferred_language', label: 'Preferred Language' }
   ];
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -128,28 +128,59 @@ export default function CandidateImport() {
       const headers = lines[0].split(',').map(h => h.trim());
       
       const candidates = [];
+      const errors = [];
+      
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(',').map(v => v.trim());
         if (values.length === headers.length) {
           const candidate: any = {};
+          let hasError = false;
+          
           headers.forEach((header, index) => {
             const mappedField = columnMapping[header];
             if (mappedField) {
+              const value = values[index];
+              
               if (mappedField === 'skills') {
-                candidate[mappedField] = values[index].split(';').map(s => s.trim());
+                candidate[mappedField] = value.split(';').map(s => s.trim());
               } else if (mappedField === 'exp_years' || mappedField === 'salary_expectation') {
-                candidate[mappedField] = parseInt(values[index]) || 0;
+                candidate[mappedField] = parseInt(value) || 0;
+              } else if (mappedField === 'phone') {
+                // Validate Indian phone number
+                let phone = value.replace(/\D/g, '');
+                if (!phone.startsWith('91') && phone.length === 10) {
+                  phone = '91' + phone;
+                }
+                if (phone.length !== 12 || !phone.startsWith('91')) {
+                  errors.push(`Row ${i}: Invalid Indian phone number: ${value}`);
+                  hasError = true;
+                } else {
+                  candidate.phone = '+' + phone;
+                }
               } else {
-                candidate[mappedField] = values[index];
+                candidate[mappedField] = value;
               }
             }
           });
           
-          // Only add if we have at least name and email
-          if (candidate.name && candidate.email) {
+          // Set default language if not provided
+          if (!candidate.preferred_language) {
+            candidate.preferred_language = 'English';
+          }
+          
+          // Only add if we have at least name, email, and valid phone
+          if (candidate.name && candidate.email && !hasError) {
             candidates.push(candidate);
           }
         }
+      }
+      
+      if (errors.length > 0) {
+        toast({
+          title: "Phone Number Validation Errors",
+          description: errors.slice(0, 5).join('\n') + (errors.length > 5 ? `\n...and ${errors.length - 5} more` : ''),
+          variant: "destructive"
+        });
       }
       
       // Insert candidates into database
@@ -194,9 +225,10 @@ export default function CandidateImport() {
   };
 
   const downloadTemplate = () => {
-    const template = 'name,email,phone,skills,exp_years,location_pref,salary_expectation\n' +
-      'John Doe,john@example.com,+1234567890,Python;Django;AWS,5,San Francisco,120000\n' +
-      'Jane Smith,jane@example.com,+1234567891,JavaScript;React;Node.js,3,New York,100000';
+    const template = 'name,email,phone,skills,exp_years,location_pref,salary_expectation,preferred_language\n' +
+      'Rajesh Kumar,rajesh@example.com,9876543210,Python;Django;AWS,5,Bangalore,1200000,English\n' +
+      'Priya Sharma,priya@example.com,9876543211,JavaScript;React;Node.js,3,Mumbai,800000,Hindi\n' +
+      'Amit Patel,amit@example.com,9876543212,Java;Spring Boot;Microservices,7,Pune,1500000,English';
     
     const blob = new Blob([template], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
