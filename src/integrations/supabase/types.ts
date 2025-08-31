@@ -527,6 +527,7 @@ export type Database = {
           completed_at: string | null
           created_at: string | null
           duration_seconds: number | null
+          extracted_data: Json | null
           id: string
           organization_id: string | null
           outcome: string | null
@@ -557,6 +558,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string | null
           duration_seconds?: number | null
+          extracted_data?: Json | null
           id?: string
           organization_id?: string | null
           outcome?: string | null
@@ -587,6 +589,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string | null
           duration_seconds?: number | null
+          extracted_data?: Json | null
           id?: string
           organization_id?: string | null
           outcome?: string | null

@@ -37,6 +37,7 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { ExportDialog } from '@/components/ExportDialog';
 
 interface Screen {
   id: string;
@@ -72,6 +73,7 @@ export default function Screens() {
   const [screens, setScreens] = useState<Screen[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   const fetchScreens = async (showLoader = true) => {
     if (showLoader) setLoading(true);
@@ -226,7 +228,7 @@ export default function Screens() {
               )}
               Refresh
             </Button>
-            <Button variant="outline">
+            <Button variant="outline" onClick={() => setExportDialogOpen(true)}>
               <Download className="w-4 h-4 mr-2" />
               Export
             </Button>
@@ -422,6 +424,13 @@ export default function Screens() {
             )}
           </Card>
         )}
+        
+        {/* Export Dialog */}
+        <ExportDialog 
+          open={exportDialogOpen}
+          onOpenChange={setExportDialogOpen}
+          screenCount={filteredScreens.length}
+        />
       </div>
     </AppLayout>
   );
