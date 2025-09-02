@@ -126,10 +126,12 @@ export function EnhancedAnalyticsDashboard() {
   if (loading) return <div>Loading analytics...</div>;
   if (!analytics) return <div>No analytics data available</div>;
 
+  const rq = analytics.response_quality ?? { full_responses: 0, partial_responses: 0, no_responses: 0 };
+
   const responseQualityData = [
-    { name: 'Full Responses', value: analytics.response_quality.full_responses, color: 'hsl(var(--success))' },
-    { name: 'Partial Responses', value: analytics.response_quality.partial_responses, color: 'hsl(var(--warning))' },
-    { name: 'No Responses', value: analytics.response_quality.no_responses, color: 'hsl(var(--destructive))' }
+    { name: 'Full Responses', value: rq.full_responses ?? 0, color: 'hsl(var(--success))' },
+    { name: 'Partial Responses', value: rq.partial_responses ?? 0, color: 'hsl(var(--warning))' },
+    { name: 'No Responses', value: rq.no_responses ?? 0, color: 'hsl(var(--destructive))' }
   ];
 
   const languageData = Object.entries(analytics.by_language).map(([lang, count]) => ({
@@ -196,7 +198,7 @@ export function EnhancedAnalyticsDashboard() {
           <CardContent>
             <div className="text-2xl font-bold">
               {totalScreenings > 0
-                ? `${Math.round((analytics.response_quality.full_responses / totalScreenings) * 100)}%`
+                ? `${Math.round(((rq.full_responses ?? 0) / totalScreenings) * 100)}%`
                 : '0%'}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -240,30 +242,30 @@ export function EnhancedAnalyticsDashboard() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm">Full Responses</span>
-                  <span className="text-sm font-medium">{analytics.response_quality.full_responses}</span>
+                  <span className="text-sm font-medium">{rq.full_responses ?? 0}</span>
                 </div>
                 <Progress 
-                  value={(analytics.response_quality.full_responses / totalScreenings) * 100} 
+                  value={((rq.full_responses ?? 0) / totalScreenings) * 100} 
                   className="h-2"
                 />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm">Partial Responses</span>
-                  <span className="text-sm font-medium">{analytics.response_quality.partial_responses}</span>
+                  <span className="text-sm font-medium">{rq.partial_responses ?? 0}</span>
                 </div>
                 <Progress 
-                  value={(analytics.response_quality.partial_responses / totalScreenings) * 100} 
+                  value={((rq.partial_responses ?? 0) / totalScreenings) * 100} 
                   className="h-2 [&>div]:bg-warning"
                 />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm">No Responses</span>
-                  <span className="text-sm font-medium">{analytics.response_quality.no_responses}</span>
+                  <span className="text-sm font-medium">{rq.no_responses ?? 0}</span>
                 </div>
                 <Progress 
-                  value={(analytics.response_quality.no_responses / totalScreenings) * 100} 
+                  value={((rq.no_responses ?? 0) / totalScreenings) * 100} 
                   className="h-2 [&>div]:bg-destructive"
                 />
               </div>
