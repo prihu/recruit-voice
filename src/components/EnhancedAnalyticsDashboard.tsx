@@ -33,6 +33,57 @@ interface AnalyticsData {
   };
 }
 
+const normalizeAnalytics = (raw: any): AnalyticsData => {
+  if (!raw) {
+    return {
+      summary: { total_screenings: 0, total_candidates: 0, total_roles: 0 },
+      by_status: {},
+      by_outcome: { passed: 0, failed: 0 },
+      response_quality: { full_responses: 0, partial_responses: 0, no_responses: 0 },
+      performance_metrics: { avg_score: 0, avg_duration_seconds: 0, avg_attempts: 0 },
+      by_language: {},
+      by_location: {},
+      timeline: { today: 0, this_week: 0, this_month: 0 },
+    };
+  }
+
+  const summarySrc = raw.summary || raw;
+  const byOutcomeSrc = raw.by_outcome || raw.outcomeBreakdown || {};
+  const responseQualitySrc = raw.response_quality || raw.responseQuality || {};
+  const performanceSrc = raw.performance_metrics || raw.performance || {};
+  const timelineSrc = raw.timeline || raw.timelineData || {};
+
+  return {
+    summary: {
+      total_screenings: summarySrc.total_screenings ?? summarySrc.totalScreenings ?? 0,
+      total_candidates: summarySrc.total_candidates ?? summarySrc.totalCandidates ?? 0,
+      total_roles: summarySrc.total_roles ?? summarySrc.totalRoles ?? 0,
+    },
+    by_status: raw.by_status || (raw.statusBreakdown ?? {}),
+    by_outcome: {
+      passed: byOutcomeSrc.passed ?? byOutcomeSrc.pass ?? 0,
+      failed: byOutcomeSrc.failed ?? byOutcomeSrc.fail ?? 0,
+    },
+    response_quality: {
+      full_responses: responseQualitySrc.full_responses ?? responseQualitySrc.full ?? 0,
+      partial_responses: responseQualitySrc.partial_responses ?? responseQualitySrc.partial ?? 0,
+      no_responses: responseQualitySrc.no_responses ?? responseQualitySrc.none ?? 0,
+    },
+    performance_metrics: {
+      avg_score: performanceSrc.avg_score ?? performanceSrc.averageScore ?? 0,
+      avg_duration_seconds: performanceSrc.avg_duration_seconds ?? performanceSrc.averageDuration ?? 0,
+      avg_attempts: performanceSrc.avg_attempts ?? performanceSrc.averageAttempts ?? 0,
+    },
+    by_language: raw.by_language ?? raw.languageDistribution ?? {},
+    by_location: raw.by_location ?? raw.locationDistribution ?? {},
+    timeline: {
+      today: timelineSrc.today ?? 0,
+      this_week: timelineSrc.this_week ?? timelineSrc.thisWeek ?? 0,
+      this_month: timelineSrc.this_month ?? timelineSrc.thisMonth ?? 0,
+    },
+  };
+};
+
 export function EnhancedAnalyticsDashboard() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,7 +96,7 @@ export function EnhancedAnalyticsDashboard() {
   const fetchAnalytics = async () => {
     try {
       const data = await demoAPI.getAnalytics();
-      setAnalytics(data.analytics || data);
+      setAnalytics(normalizeAnalytics(data.analytics || data));
     } catch (err: any) {
       console.error('Analytics error:', err);
       // Set default analytics in case of error
