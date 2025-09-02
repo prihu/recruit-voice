@@ -51,7 +51,8 @@ export function PhoneCallScheduler({ candidate, role, onScheduled }: PhoneCallSc
 
       // Schedule the call using demo API
       await demoAPI.scheduleCall(
-        'temp-screen-id', // In demo mode, we use a temporary ID
+        role.id,
+        candidate.id,
         scheduledTime.toISOString()
       );
 

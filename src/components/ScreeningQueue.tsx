@@ -65,7 +65,7 @@ export function ScreeningQueue() {
 
   const handlePause = async (operationId: string) => {
     try {
-      await demoAPI.updateBulkOperation(operationId, { status: 'paused' });
+      await demoAPI.updateBulkOperation(operationId, 'pause');
 
       toast({
         title: 'Operation Paused (Demo)',
@@ -86,7 +86,7 @@ export function ScreeningQueue() {
 
   const handleResume = async (operationId: string) => {
     try {
-      await demoAPI.updateBulkOperation(operationId, { status: 'in_progress' });
+      await demoAPI.updateBulkOperation(operationId, 'resume');
 
       toast({
         title: 'Operation Resumed (Demo)',
@@ -107,10 +107,7 @@ export function ScreeningQueue() {
 
   const handleCancel = async (operationId: string) => {
     try {
-      await demoAPI.updateBulkOperation(operationId, { 
-        status: 'cancelled',
-        completed_at: new Date().toISOString()
-      });
+      await demoAPI.updateBulkOperation(operationId, 'cancel');
 
       toast({
         title: 'Operation Cancelled (Demo)',
@@ -138,7 +135,7 @@ export function ScreeningQueue() {
       });
       
       // Simulate the retry by updating the operation status
-      await demoAPI.updateBulkOperation(operationId, { status: 'in_progress' });
+      await demoAPI.updateBulkOperation(operationId, 'retry_failed');
       
       // Refresh data
       fetchBulkOperations();

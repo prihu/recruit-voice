@@ -136,6 +136,7 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
       const data = await demoAPI.getAnalytics({
         startDate: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
         endDate: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
+        includeDetails: true
       });
 
       const screenings = data.screenings || [];

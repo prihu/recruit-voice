@@ -43,20 +43,21 @@ export function CallMonitor() {
   const fetchActiveCalls = async () => {
     try {
       // In demo mode, fetch screenings and filter active ones
-      const screenings = await demoAPI.getScreenings();
+      const data = await demoAPI.getScreenings();
+      const screenings = data?.screens || [];
       
-      const calls: ActiveCall[] = (screenings || [])
+      const calls: ActiveCall[] = screenings
         .filter((screen: any) => screen.status === 'in_progress' || screen.status === 'scheduled')
         .map((screen: any) => ({
           id: screen.id,
-          candidateName: screen.candidate?.name || 'Unknown',
-          roleName: screen.role?.title || 'Unknown Role',
+          candidateName: screen.candidate_name || 'Unknown',
+          roleName: screen.role_title || 'Unknown Role',
           status: screen.status,
           startedAt: new Date(screen.started_at || screen.scheduled_at || Date.now()),
           duration: screen.started_at 
             ? Math.floor((Date.now() - new Date(screen.started_at).getTime()) / 1000)
             : 0,
-          phoneNumber: screen.candidate?.phone || 'Unknown',
+          phoneNumber: screen.candidate_phone || 'Unknown',
         }));
 
       setActiveCalls(calls);

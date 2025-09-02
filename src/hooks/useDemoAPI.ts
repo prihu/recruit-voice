@@ -120,9 +120,9 @@ export function useDemoAPI() {
 
   const bulkScreening = async (roleId: string, candidateIds: string[], settings?: any) => {
     if (DEMO_MODE) {
-      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/bulk`, {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.bulkScreenings}`, {
         method: 'POST',
-        body: JSON.stringify({ roleId, candidateIds, settings }),
+        body: JSON.stringify({ roleId, candidateIds, ...settings }),
       });
     }
     // Original implementation would go here
@@ -130,12 +130,13 @@ export function useDemoAPI() {
   };
 
   // Analytics operations
-  const getAnalytics = async (params?: { startDate?: string; endDate?: string; roleId?: string }) => {
+  const getAnalytics = async (params?: { startDate?: string; endDate?: string; roleId?: string; includeDetails?: boolean }) => {
     if (DEMO_MODE) {
       const queryParams = new URLSearchParams();
       if (params?.startDate) queryParams.append('startDate', params.startDate);
       if (params?.endDate) queryParams.append('endDate', params.endDate);
       if (params?.roleId) queryParams.append('roleId', params.roleId);
+      if (params?.includeDetails) queryParams.append('includeDetails', 'true');
       return fetchDemoAPI(`${DEMO_ENDPOINTS.analytics}?${queryParams}`);
     }
     // Original implementation would go here
@@ -215,11 +216,15 @@ export function useDemoAPI() {
     return data;
   };
 
-  const scheduleCall = async (screenId: string, scheduledTime: string) => {
+  const scheduleCall = async (roleId: string, candidateId: string, scheduledTime: string) => {
     if (DEMO_MODE) {
-      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/schedule`, {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/initiate`, {
         method: 'POST',
-        body: JSON.stringify({ screenId, scheduledTime }),
+        body: JSON.stringify({ 
+          roleId, 
+          candidateIds: [candidateId], 
+          scheduledTime 
+        }),
       });
     }
     // Original implementation would go here
@@ -263,21 +268,21 @@ export function useDemoAPI() {
 
   const getBulkOperations = async () => {
     if (DEMO_MODE) {
-      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/bulk-operations`);
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.bulkScreenings}`);
     }
     const { data, error } = await supabase.from('bulk_operations').select('*');
     if (error) throw error;
     return data;
   };
 
-  const updateBulkOperation = async (id: string, updates: any) => {
+  const updateBulkOperation = async (id: string, action: 'pause' | 'resume' | 'cancel' | 'retry_failed') => {
     if (DEMO_MODE) {
-      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/bulk-operations/${id}`, {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.bulkScreenings}/${id}`, {
         method: 'PUT',
-        body: JSON.stringify(updates),
+        body: JSON.stringify({ action }),
       });
     }
-    const { data, error } = await supabase.from('bulk_operations').update(updates).eq('id', id).select().single();
+    const { data, error } = await supabase.from('bulk_operations').update({ status: action }).eq('id', id).select().single();
     if (error) throw error;
     return data;
   };

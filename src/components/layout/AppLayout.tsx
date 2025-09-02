@@ -11,10 +11,10 @@ import {
   Plus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/integrations/supabase/client';
 import { QuickActionsMenu } from '@/components/QuickActionsMenu';
 import { BulkScreeningModal } from '@/components/BulkScreeningModal';
 import { Badge } from '@/components/ui/badge';
+import { useDemoAPI } from '@/hooks/useDemoAPI';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -24,35 +24,29 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const [activeScreensCount, setActiveScreensCount] = useState(0);
   const [showBulkScreening, setShowBulkScreening] = useState(false);
+  const demoAPI = useDemoAPI();
 
   useEffect(() => {
     // Fetch initial count of active screens
     const fetchActiveScreens = async () => {
-      const { count } = await supabase
-        .from('screens')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['in_progress', 'scheduled']);
-      
-      setActiveScreensCount(count || 0);
+      try {
+        const screenings = await demoAPI.getScreenings();
+        const activeCount = screenings?.screens?.filter((s: any) => 
+          s.status === 'in_progress' || s.status === 'scheduled'
+        ).length || 0;
+        setActiveScreensCount(activeCount);
+      } catch (error) {
+        console.error('Error fetching active screens:', error);
+      }
     };
 
     fetchActiveScreens();
 
-    // Subscribe to real-time updates
-    const channel = supabase
-      .channel('active-screens')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'screens' },
-        async () => {
-          // Re-fetch count when screens table changes
-          fetchActiveScreens();
-        }
-      )
-      .subscribe();
+    // Poll for updates every 5 seconds in demo mode
+    const interval = setInterval(fetchActiveScreens, 5000);
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(interval);
     };
   }, []);
 

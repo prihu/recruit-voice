@@ -1,5 +1,49 @@
 project_id = "yfuroouzxmxlvkwsmtny"
 
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+[realtime]
+enabled = true
+broadcast.self = true
+max_replication_lag_bytes = 67108864
+max_replication_slot_wal_keep_size = 104857600
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["https://localhost:5173"]
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[studio]
+enabled = false
+port = 54323
+api_url = "http://localhost"
+
 [functions.elevenlabs-voice]
 verify_jwt = true
 
@@ -40,4 +84,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.demo-api-agent-manager]
+verify_jwt = false
+
+[functions.demo-api-bulk-screenings]
 verify_jwt = false
