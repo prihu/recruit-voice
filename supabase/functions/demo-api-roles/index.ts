@@ -8,6 +8,48 @@ const corsHeaders = {
 };
 
 const DEMO_ORG_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+const DEMO_USER_ID = '59dc7810-80b7-4a31-806a-bb0533526fab';
+
+// Helper to ensure demo setup is complete
+async function ensureDemoSetup(supabase: any) {
+  // Check if user is already a member of the organization
+  const { data: existingMember } = await supabase
+    .from('organization_members')
+    .select('id')
+    .eq('user_id', DEMO_USER_ID)
+    .eq('organization_id', DEMO_ORG_ID)
+    .single();
+  
+  if (!existingMember) {
+    // Add user to organization as admin
+    await supabase
+      .from('organization_members')
+      .insert({
+        user_id: DEMO_USER_ID,
+        organization_id: DEMO_ORG_ID,
+        role: 'admin'
+      });
+  }
+  
+  // Ensure profile exists
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('user_id', DEMO_USER_ID)
+    .single();
+  
+  if (!existingProfile) {
+    await supabase
+      .from('profiles')
+      .insert({
+        user_id: DEMO_USER_ID,
+        full_name: 'Demo User',
+        role: 'recruiter'
+      });
+  }
+  
+  return DEMO_USER_ID;
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -26,6 +68,9 @@ serve(async (req) => {
     const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+    
+    // Ensure demo setup on every request
+    const demoUserId = await ensureDemoSetup(supabase);
 
     // Handle different HTTP methods
     switch (req.method) {
@@ -67,11 +112,19 @@ serve(async (req) => {
       case 'POST': {
         const body = await req.json();
         
-        // Add demo organization ID
+        // Add demo organization ID and user ID with proper defaults
         const roleData = {
           ...body,
           organization_id: DEMO_ORG_ID,
-          user_id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479', // Using demo org ID as user ID
+          user_id: demoUserId,
+          questions: body.questions || [],
+          faq: body.faq || [],
+          call_window: body.call_window || {
+            timezone: "UTC",
+            allowedDays: [1, 2, 3, 4, 5],
+            maxAttempts: 3,
+            allowedHours: { start: "09:00", end: "17:00" }
+          }
         };
 
         const { data: role, error } = await supabase

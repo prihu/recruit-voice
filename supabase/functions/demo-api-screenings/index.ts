@@ -8,6 +8,48 @@ const corsHeaders = {
 };
 
 const DEMO_ORG_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+const DEMO_USER_ID = '59dc7810-80b7-4a31-806a-bb0533526fab';
+
+// Helper to ensure demo setup is complete
+async function ensureDemoSetup(supabase: any) {
+  // Check if user is already a member of the organization
+  const { data: existingMember } = await supabase
+    .from('organization_members')
+    .select('id')
+    .eq('user_id', DEMO_USER_ID)
+    .eq('organization_id', DEMO_ORG_ID)
+    .single();
+  
+  if (!existingMember) {
+    // Add user to organization as admin
+    await supabase
+      .from('organization_members')
+      .insert({
+        user_id: DEMO_USER_ID,
+        organization_id: DEMO_ORG_ID,
+        role: 'admin'
+      });
+  }
+  
+  // Ensure profile exists
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('user_id', DEMO_USER_ID)
+    .single();
+  
+  if (!existingProfile) {
+    await supabase
+      .from('profiles')
+      .insert({
+        user_id: DEMO_USER_ID,
+        full_name: 'Demo User',
+        role: 'recruiter'
+      });
+  }
+  
+  return DEMO_USER_ID;
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -30,6 +72,9 @@ serve(async (req) => {
     const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+    
+    // Ensure demo setup on every request
+    const demoUserId = await ensureDemoSetup(supabase);
 
     // Handle different HTTP methods
     switch (req.method) {
@@ -153,7 +198,7 @@ serve(async (req) => {
           const screensToInsert = candidateIds.map(candidateId => ({
             role_id: roleId,
             candidate_id: candidateId,
-            user_id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+            user_id: demoUserId,
             organization_id: DEMO_ORG_ID,
             status: 'pending',
             scheduled_at: scheduledTime || new Date().toISOString(),
@@ -252,7 +297,7 @@ serve(async (req) => {
             .insert({
               role_id: roleId,
               organization_id: DEMO_ORG_ID,
-              user_id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+              user_id: demoUserId,
               total_count: candidateIds.length,
               status: 'pending',
               settings: settings || {},
@@ -268,7 +313,7 @@ serve(async (req) => {
           const screensToInsert = candidateIds.map(candidateId => ({
             role_id: roleId,
             candidate_id: candidateId,
-            user_id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+            user_id: demoUserId,
             organization_id: DEMO_ORG_ID,
             bulk_operation_id: bulkOp.id,
             status: 'pending',

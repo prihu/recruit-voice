@@ -6,6 +6,50 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const DEMO_ORG_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+const DEMO_USER_ID = '59dc7810-80b7-4a31-806a-bb0533526fab';
+
+// Helper to ensure demo setup is complete
+async function ensureDemoSetup(supabase: any) {
+  // Check if user is already a member of the organization
+  const { data: existingMember } = await supabase
+    .from('organization_members')
+    .select('id')
+    .eq('user_id', DEMO_USER_ID)
+    .eq('organization_id', DEMO_ORG_ID)
+    .single();
+  
+  if (!existingMember) {
+    // Add user to organization as admin
+    await supabase
+      .from('organization_members')
+      .insert({
+        user_id: DEMO_USER_ID,
+        organization_id: DEMO_ORG_ID,
+        role: 'admin'
+      });
+  }
+  
+  // Ensure profile exists
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('user_id', DEMO_USER_ID)
+    .single();
+  
+  if (!existingProfile) {
+    await supabase
+      .from('profiles')
+      .insert({
+        user_id: DEMO_USER_ID,
+        full_name: 'Demo User',
+        role: 'recruiter'
+      });
+  }
+  
+  return DEMO_USER_ID;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -21,6 +65,10 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+    
+    // Ensure demo setup on every request
+    const demoUserId = await ensureDemoSetup(supabase);
+    
     const url = new URL(req.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
     const operationId = pathParts[pathParts.length - 1];
@@ -36,6 +84,7 @@ serve(async (req) => {
           role:roles(id, title, location),
           screens(id, status)
         `)
+        .eq('organization_id', DEMO_ORG_ID)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -74,6 +123,7 @@ serve(async (req) => {
           screens(id, status, candidate_id, candidates(name, phone))
         `)
         .eq('id', operationId)
+        .eq('organization_id', DEMO_ORG_ID)
         .single();
 
       if (error) {
@@ -104,68 +154,78 @@ serve(async (req) => {
       const { action } = await req.json();
       
       let updateData: any = {};
-      const now = new Date().toISOString();
       
       switch (action) {
         case 'pause':
-          updateData = { status: 'paused', updated_at: now };
+          updateData.status = 'paused';
           break;
         case 'resume':
-          updateData = { status: 'in_progress', updated_at: now };
+          updateData.status = 'in_progress';
+          updateData.started_at = new Date().toISOString();
           break;
         case 'cancel':
-          updateData = { status: 'cancelled', updated_at: now, completed_at: now };
+          updateData.status = 'cancelled';
+          updateData.completed_at = new Date().toISOString();
           break;
         case 'retry_failed':
           // Reset failed screens to pending
-          const { data: failedScreens } = await supabase
+          const { error: resetError } = await supabase
             .from('screens')
-            .select('id')
+            .update({ status: 'pending', attempts: 0 })
             .eq('bulk_operation_id', operationId)
             .eq('status', 'failed');
           
-          if (failedScreens && failedScreens.length > 0) {
-            await supabase
-              .from('screens')
-              .update({ status: 'pending', attempts: 0 })
-              .in('id', failedScreens.map(s => s.id));
+          if (resetError) {
+            console.error('Error resetting failed screens:', resetError);
+            throw resetError;
           }
           
-          updateData = { status: 'in_progress', updated_at: now };
+          updateData.status = 'in_progress';
+          updateData.failed_count = 0;
           break;
         default:
-          return new Response(
-            JSON.stringify({ error: 'Invalid action' }),
-            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          throw new Error('Invalid action');
       }
-
-      const { data, error } = await supabase
+      
+      const { data: updatedOp, error: updateError } = await supabase
         .from('bulk_operations')
         .update(updateData)
         .eq('id', operationId)
+        .eq('organization_id', DEMO_ORG_ID)
         .select()
         .single();
-
-      if (error) {
-        console.error('Error updating bulk operation:', error);
-        throw error;
+      
+      if (updateError) {
+        console.error('Error updating bulk operation:', updateError);
+        throw updateError;
       }
-
-      // If resuming or retrying, trigger the processing function
+      
+      // If resuming or retrying, trigger processing
       if (action === 'resume' || action === 'retry_failed') {
-        // Invoke the process-bulk-screenings function
-        const { error: invokeError } = await supabase.functions.invoke('process-bulk-screenings', {
-          body: { action, bulkOperationId: operationId }
-        });
+        console.log('Triggering bulk processing for operation:', operationId);
         
-        if (invokeError) {
-          console.error('Error invoking process-bulk-screenings:', invokeError);
+        const processResponse = await fetch(
+          `${supabaseUrl}/functions/v1/process-bulk-screenings`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseServiceRoleKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              bulkOperationId: operationId,
+              action: 'start'
+            })
+          }
+        );
+        
+        if (!processResponse.ok) {
+          console.error('Failed to trigger bulk processing');
         }
       }
-
+      
       return new Response(
-        JSON.stringify(data),
+        JSON.stringify(updatedOp),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -174,91 +234,104 @@ serve(async (req) => {
     if (req.method === 'POST') {
       console.log('Creating new bulk operation');
       
-      const body = await req.json();
-      const { roleId, candidateIds, schedulingType, scheduledTime, batchSize = 5 } = body;
-
-      // Create bulk operation
+      const { roleId, candidateIds, schedulingType, scheduledTime, priority, retryFailedCalls } = await req.json();
+      
+      if (!roleId || !candidateIds || !Array.isArray(candidateIds)) {
+        throw new Error('roleId and candidateIds array are required');
+      }
+      
+      // Create new bulk operation
       const { data: bulkOp, error: bulkOpError } = await supabase
         .from('bulk_operations')
         .insert({
+          organization_id: DEMO_ORG_ID,
+          user_id: demoUserId,
           role_id: roleId,
-          user_id: body.userId || 'demo-user-001',
-          organization_id: body.organizationId || 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+          operation_type: 'bulk_screening',
           status: 'pending',
           total_count: candidateIds.length,
+          completed_count: 0,
+          failed_count: 0,
           settings: {
-            scheduling_type: schedulingType,
-            scheduled_time: scheduledTime,
-            batch_size: batchSize
+            schedulingType,
+            scheduledTime,
+            priority,
+            retryFailedCalls
           }
         })
         .select()
         .single();
-
+      
       if (bulkOpError) {
         console.error('Error creating bulk operation:', bulkOpError);
         throw bulkOpError;
       }
-
-      // Create screens for each candidate
-      const screens = candidateIds.map((candidateId: string) => ({
-        candidate_id: candidateId,
+      
+      // Create screening records for each candidate
+      const screeningData = candidateIds.map((candidateId: string) => ({
         role_id: roleId,
-        user_id: body.userId || 'demo-user-001',
-        organization_id: body.organizationId || 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+        candidate_id: candidateId,
+        user_id: demoUserId,
+        organization_id: DEMO_ORG_ID,
         bulk_operation_id: bulkOp.id,
         status: 'pending',
+        scheduled_at: scheduledTime || new Date().toISOString(),
         screening_type: 'voice',
-        scheduled_at: schedulingType === 'scheduled' ? scheduledTime : null
+        attempts: 0,
+        total_questions: 0,
+        questions_answered: 0,
+        response_completeness: 0
       }));
-
-      const { error: screensError } = await supabase
+      
+      const { data: screens, error: screensError } = await supabase
         .from('screens')
-        .insert(screens);
-
+        .insert(screeningData)
+        .select();
+      
       if (screensError) {
         console.error('Error creating screens:', screensError);
         throw screensError;
       }
-
-      // If immediate, trigger processing
+      
+      // If immediate scheduling, trigger processing
       if (schedulingType === 'immediate') {
-        const { error: invokeError } = await supabase.functions.invoke('process-bulk-screenings', {
-          body: { 
-            bulkOperationId: bulkOp.id,
-            roleId,
-            candidateIds,
-            batchSize
-          }
-        });
+        console.log('Triggering immediate bulk processing');
         
-        if (invokeError) {
-          console.error('Error invoking process-bulk-screenings:', invokeError);
+        const processResponse = await fetch(
+          `${supabaseUrl}/functions/v1/process-bulk-screenings`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseServiceRoleKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              bulkOperationId: bulkOp.id,
+              action: 'start'
+            })
+          }
+        );
+        
+        if (!processResponse.ok) {
+          console.error('Failed to trigger bulk processing');
         }
-
-        // Update status to in_progress
-        await supabase
-          .from('bulk_operations')
-          .update({ status: 'in_progress', started_at: new Date().toISOString() })
-          .eq('id', bulkOp.id);
       }
-
+      
       return new Response(
-        JSON.stringify({ ...bulkOp, message: 'Bulk screening initiated successfully' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          ...bulkOp,
+          screens
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 201 }
       );
     }
 
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
-  } catch (error) {
+    throw new Error('Method not allowed');
+  } catch (error: any) {
     console.error('Error in demo-api-bulk-screenings:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
 });
