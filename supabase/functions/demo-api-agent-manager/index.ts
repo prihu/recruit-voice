@@ -61,27 +61,29 @@ IMPORTANT: Keep the conversation natural and engaging. Listen actively and ask f
     name: `${role.title} - ${organization.name}`,
     conversation_config: {
       asr: {
-        quality: "high",
         provider: "elevenlabs",
+        quality: "high",
         user_input_audio_format: "pcm_16000",
         keywords: keywords
       },
       tts: {
+        provider: "elevenlabs",
         voice_id: "21m00Tcm4TlvDq8ikWAM", // Rachel - professional female voice
-        model_id: "eleven_turbo_v2_5",
+        model_id: "eleven_turbo_v2_5"
       },
       llm: {
-        model: "gpt-4o",
+        provider: "openai",
+        model_id: "gpt-4o",  // Changed from 'model' to 'model_id'
         prompt: {
           prompt: prompt
         },
         first_message: firstMessage,
-        temperature: 0.7,
-        max_tokens: 150
+        // Removed temperature as it's not supported by newer models
+        max_completion_tokens: 150  // Changed from max_tokens
       },
       turn: {
-        turn_timeout: 10,
         mode: "silence",  // ElevenLabs API expects "silence" or "turn"
+        turn_timeout: 10,
         silence_duration_ms: 2000
       }
     },
@@ -227,6 +229,9 @@ serve(async (req) => {
           country: 'IN'
         });
 
+        // Log the configuration being sent for debugging
+        console.log('Sending agent configuration to ElevenLabs:', JSON.stringify(agentConfig, null, 2));
+
         // Create agent in ElevenLabs - no simulation, real API only
         const response = await fetch('https://api.elevenlabs.io/v1/convai/agents/create', {
           method: 'POST',
@@ -246,16 +251,23 @@ serve(async (req) => {
             const errorJson = JSON.parse(errorText);
             // Handle ElevenLabs validation errors which come as an array
             if (Array.isArray(errorJson.detail)) {
-              const validationErrors = errorJson.detail.map((err: any) => 
-                `${err.loc?.join('.')} - ${err.msg}`
-              ).join(', ');
-              errorMessage = `Validation error: ${validationErrors}`;
+              const validationErrors = errorJson.detail.map((err: any) => {
+                const field = err.loc?.join('.') || 'unknown field';
+                const msg = err.msg || 'validation error';
+                const type = err.type || '';
+                return `${field}: ${msg}${type ? ` (${type})` : ''}`;
+              }).join('; ');
+              errorMessage = `Configuration validation failed: ${validationErrors}`;
+              console.error('Validation errors from ElevenLabs:', errorJson.detail);
+            } else if (errorJson.status === 'invalid_agent_config') {
+              errorMessage = `Invalid agent configuration: ${errorJson.message || 'Please check the configuration structure'}`;
             } else {
-              errorMessage = errorJson.detail || errorJson.message || errorMessage;
+              errorMessage = errorJson.detail?.message || errorJson.detail || errorJson.message || errorMessage;
             }
             errorDetails = errorJson;
-          } catch {
+          } catch (parseError) {
             // errorText is not JSON, use as is
+            console.error('Failed to parse error response:', parseError);
           }
           
           console.error('ElevenLabs API error:', {

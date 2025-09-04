@@ -1,0 +1,41 @@
+{
+  "name": "Frontend Developer - Demo Company",
+  "conversation_config": {
+    "asr": {
+      "provider": "elevenlabs",
+      "quality": "high",
+      "user_input_audio_format": "pcm_16000",
+      "keywords": ["Delhi", "NCR", "Frontend", "Developer", "Bangalore", "Bengaluru", "Mumbai", "Delhi", "Chennai", "Hyderabad", "Pune", "lakhs", "crores", "INR", "rupees", "fresher", "experienced", "notice period"]
+    },
+    "tts": {
+      "provider": "elevenlabs",
+      "voice_id": "21m00Tcm4TlvDq8ikWAM",
+      "model_id": "eleven_turbo_v2_5"
+    },
+    "llm": {
+      "provider": "openai",
+      "model_id": "gpt-4o",
+      "prompt": {
+        "prompt": "You are conducting a phone screening interview for Frontend Developer at Demo Company.\n\nROLE DETAILS:\n- Position: Frontend Developer\n- Location: Delhi NCR\n- Salary Range: INR 8 - 15\n\nABOUT THE ROLE:\nWe're looking for a Frontend Developer to join our team.\n\nEVALUATION CRITERIA:\nTechnical skills in React and frontend development\n\nSCREENING QUESTIONS YOU MUST ASK:\n1. Do you have experience with React?\n2. How many years of frontend development experience do you have?\n3. Are you comfortable working in Delhi NCR?\n\nFAQs YOU CAN ANSWER IF ASKED:\nQ: What is the work culture like?\nA: We have a collaborative and innovative work environment.\n\nQ: Are there growth opportunities?\nA: Yes, we offer excellent career growth paths.\n\nCALL SETTINGS:\n- Timezone: Asia/Kolkata\n- Working Hours: 9:00 - 18:00\n\nINSTRUCTIONS:\n1. Be professional, friendly, and conversational\n2. Ask each screening question and listen carefully to responses\n3. If the candidate speaks Hindi or a regional language, you may respond in the same language\n4. Take notes on their answers for evaluation\n5. Answer any questions they have about the role using the FAQs\n6. Thank them for their time at the end\n7. Do not make any hiring decisions during the call\n\nIMPORTANT: Keep the conversation natural and engaging. Listen actively and ask follow-up questions when appropriate."
+      },
+      "first_message": "Hello! This is an automated screening call from Demo Company for the Frontend Developer position. Is this a good time to talk for about 10-15 minutes?",
+      "max_completion_tokens": 150
+    },
+    "turn": {
+      "mode": "silence",
+      "turn_timeout": 10,
+      "silence_duration_ms": 2000
+    }
+  },
+  "platform_settings": {
+    "max_duration": 1800,
+    "enable_backchannel": true,
+    "conversation_id_prefix": "role-fe114d66-a9f6-49ff-a950-8d91b94de9e3"
+  },
+  "tags": [
+    "org-f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "role-fe114d66-a9f6-49ff-a950-8d91b94de9e3",
+    "screening-agent",
+    "IN"
+  ]
+}
