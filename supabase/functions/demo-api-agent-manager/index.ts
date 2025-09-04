@@ -147,73 +147,103 @@ Remember to:
           webhook_url: `https://yfuroouzxmxlvkwsmtny.supabase.co/functions/v1/elevenlabs-webhook`,
         };
 
-        // Create agent in ElevenLabs with error fallback
-        let agentId: string;
-        let isSimulated = false;
-        
-        try {
-          const response = await fetch('https://api.elevenlabs.io/v1/convai/agents/create', {
-            method: 'POST',
-            headers: {
-              'xi-api-key': elevenLabsApiKey,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(agentConfig),
-          });
+        // Create agent in ElevenLabs - no simulation, real API only
+        const response = await fetch('https://api.elevenlabs.io/v1/convai/agents/create', {
+          method: 'POST',
+          headers: {
+            'xi-api-key': elevenLabsApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(agentConfig),
+        });
 
-          if (!response.ok) {
-            const error = await response.text();
-            console.error('Failed to create ElevenLabs agent:', error);
-            
-            // In demo mode, simulate success if ElevenLabs fails
-            console.log('Simulating agent creation for demo mode');
-            agentId = `demo-agent-${Date.now()}`;
-            isSimulated = true;
-          } else {
-            const agent = await response.json();
-            agentId = agent.agent_id;
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorMessage = 'Failed to create ElevenLabs agent';
+          let errorDetails = errorText;
+          
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.detail || errorJson.message || errorMessage;
+            errorDetails = errorJson;
+          } catch {
+            // errorText is not JSON, use as is
           }
-        } catch (apiError) {
-          console.error('ElevenLabs API error:', apiError);
-          // Simulate success for demo mode
-          console.log('Simulating agent creation due to API error');
-          agentId = `demo-agent-${Date.now()}`;
-          isSimulated = true;
+          
+          console.error('ElevenLabs API error:', {
+            status: response.status,
+            message: errorMessage,
+            details: errorDetails
+          });
+          
+          // Return detailed error response - no simulation
+          return new Response(JSON.stringify({ 
+            error: errorMessage,
+            details: errorDetails,
+            status: response.status,
+            helpText: response.status === 401 
+              ? 'Please check your ElevenLabs API key configuration' 
+              : response.status === 429 
+              ? 'ElevenLabs API rate limit exceeded. Please try again later.'
+              : 'ElevenLabs API error. Check the details for more information.'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: response.status || 500,
+          });
         }
 
-        // Update role with agent ID
+        // Only process successful responses
+        const agent = await response.json();
+        const agentId = agent.agent_id;
+        
+        if (!agentId) {
+          console.error('No agent_id in ElevenLabs response:', agent);
+          return new Response(JSON.stringify({ 
+            error: 'Invalid response from ElevenLabs API',
+            details: 'No agent_id returned'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 500,
+          });
+        }
+
+        // Update role with real agent ID only
         const { error: updateError } = await supabase
           .from('roles')
           .update({ 
             voice_agent_id: agentId,
-            agent_sync_status: isSimulated ? 'pending' : 'synced',
+            agent_sync_status: 'synced',
             agent_created_at: new Date().toISOString(),
-            agent_error_message: isSimulated ? 'Demo mode - simulated agent' : null,
+            agent_error_message: null,
           })
           .eq('id', roleId)
           .eq('organization_id', DEMO_ORG_ID);
 
         if (updateError) {
           console.error('Failed to update role with agent ID:', updateError);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to save agent configuration',
+            details: updateError.message
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 500,
+          });
         }
 
-        // Log agent creation
+        // Log successful agent creation
         await supabase
           .from('agent_archive_log')
           .insert({
             role_id: roleId,
             organization_id: DEMO_ORG_ID,
             agent_id: agentId,
-            reason: isSimulated ? 'Demo agent created (simulated)' : 'Agent created via demo API',
+            reason: 'Agent created via demo API',
           });
 
         return new Response(JSON.stringify({
           success: true,
           agentId: agentId,
-          message: isSimulated 
-            ? 'Demo agent created (simulated for testing)' 
-            : 'Voice agent created successfully',
-          isSimulated: isSimulated,
+          message: 'Voice agent created successfully',
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });

@@ -159,11 +159,22 @@ export default function RoleDetail() {
           description: "Role updated successfully"
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving role:', error);
+      
+      // Extract detailed error message
+      let errorMessage = "Failed to save role";
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.response?.data?.details) {
+        errorMessage = error.response.data.details;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: "Error",
-        description: "Failed to save role",
+        description: errorMessage,
         variant: "destructive"
       });
     } finally {
@@ -240,12 +251,36 @@ export default function RoleDetail() {
     } catch (error: any) {
       console.error('Error with agent:', error);
       setAgentStatus('failed');
-      setAgentError(error.message || 'Failed to configure agent');
+      
+      // Extract detailed error message from the response
+      let errorMessage = 'Failed to configure agent';
+      let errorDetails = '';
+      
+      if (error.response?.data) {
+        const data = error.response.data;
+        errorMessage = data.error || errorMessage;
+        errorDetails = data.details || '';
+        
+        // Add help text if available
+        if (data.helpText) {
+          errorMessage = `${errorMessage}. ${data.helpText}`;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setAgentError(errorMessage);
+      
       toast({
         title: "Error",
-        description: "Failed to configure agent in demo mode",
+        description: errorMessage,
         variant: "destructive"
       });
+      
+      // Log detailed error for debugging
+      if (errorDetails) {
+        console.error('Detailed error:', errorDetails);
+      }
     } finally {
       setCreatingAgent(false);
     }
