@@ -2,18 +2,23 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Mic, MicOff, Volume2, Loader2 } from 'lucide-react';
-import { useVoiceScreening } from '@/hooks/useVoiceScreening';
-import { Role, Candidate } from '@/types';
+import { Mic, MicOff, Phone, PhoneOff, Volume2, Loader2 } from 'lucide-react';
+import { useElevenLabsConversation } from '@/hooks/useElevenLabsConversation';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
+import { useState } from 'react';
 
 interface VoiceScreeningProps {
   screenId: string;
-  role: Role;
-  candidate: Candidate;
+  role: any; // Using any to match the hook interface
+  candidate: any;
   onComplete?: (data: any) => void;
 }
 
 export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceScreeningProps) {
+  const [isInitiatingCall, setIsInitiatingCall] = useState(false);
+  
+  // Use real ElevenLabs conversation if agent is configured
   const {
     startScreening,
     stopScreening,
@@ -24,7 +29,71 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
     totalQuestions,
     isSpeaking,
     status
-  } = useVoiceScreening({ screenId, role, candidate, onComplete });
+  } = useElevenLabsConversation({ screenId, role, candidate, onComplete });
+
+  const initiatePhoneCall = async () => {
+    if (!role.voice_agent_id) {
+      toast({
+        title: 'Voice Agent Not Configured',
+        description: 'Please configure the voice agent for this role first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!candidate.phone) {
+      toast({
+        title: 'Phone Number Missing',
+        description: 'Candidate phone number is required for phone screening',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsInitiatingCall(true);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('elevenlabs-voice/initiate-phone-call', {
+        body: {
+          agentId: role.voice_agent_id,
+          phoneNumber: candidate.phone,
+          screenId,
+          candidateId: candidate.id,
+          metadata: {
+            candidateName: candidate.name,
+            roleTitle: role.title,
+            roleId: role.id
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Phone Call Initiated',
+        description: `Calling ${candidate.name} at ${candidate.phone}`,
+      });
+
+      // Update screen status
+      await supabase
+        .from('screens')
+        .update({
+          status: 'calling',
+          call_initiated_at: new Date().toISOString()
+        })
+        .eq('id', screenId);
+
+    } catch (error: any) {
+      console.error('Failed to initiate phone call:', error);
+      toast({
+        title: 'Failed to Initiate Call',
+        description: error.message || 'Please try again',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsInitiatingCall(false);
+    }
+  };
 
   const progress = totalQuestions > 0 ? (currentQuestion / totalQuestions) * 100 : 0;
 
@@ -78,26 +147,53 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
         {/* Controls */}
         <div className="flex gap-2">
           {!isActive ? (
-            <Button onClick={startScreening} disabled={isLoading} className="flex-1">
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Preparing...
-                </>
-              ) : (
-                <>
-                  <Mic className="mr-2 h-4 w-4" />
-                  Start Interview
-                </>
-              )}
-            </Button>
+            <>
+              <Button onClick={startScreening} disabled={isLoading} className="flex-1">
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Preparing...
+                  </>
+                ) : (
+                  <>
+                    <Mic className="mr-2 h-4 w-4" />
+                    Web Interview
+                  </>
+                )}
+              </Button>
+              <Button 
+                onClick={initiatePhoneCall} 
+                disabled={isInitiatingCall || !candidate.phone}
+                variant="outline"
+                className="flex-1"
+              >
+                {isInitiatingCall ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Calling...
+                  </>
+                ) : (
+                  <>
+                    <Phone className="mr-2 h-4 w-4" />
+                    Phone Call
+                  </>
+                )}
+              </Button>
+            </>
           ) : (
-            <Button onClick={stopScreening} variant="destructive" className="flex-1">
+            <Button onClick={stopScreening} variant="destructive" className="w-full">
               <MicOff className="mr-2 h-4 w-4" />
               End Interview
             </Button>
           )}
         </div>
+        
+        {/* Phone Number Display */}
+        {candidate.phone && (
+          <div className="text-sm text-muted-foreground text-center">
+            Candidate Phone: {candidate.phone}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

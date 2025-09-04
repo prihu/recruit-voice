@@ -10,6 +10,123 @@ const corsHeaders = {
 const DEMO_ORG_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 const DEMO_USER_ID = '59dc7810-80b7-4a31-806a-bb0533526fab';
 
+// Advanced agent configuration generator
+function generateAgentConfig(role: any, organization: any) {
+  const questions = role.questions || [];
+  const faq = role.faq || [];
+  const evaluationCriteria = role.evaluation_criteria || role.rules || '';
+  
+  // Extract keywords from role for better ASR
+  const keywords = extractKeywords(role);
+  
+  // Generate greeting based on context
+  const firstMessage = `Hello! This is an automated screening call from ${organization.name || 'our company'} for the ${role.title} position. Is this a good time to talk for about 10-15 minutes?`;
+  
+  // Generate comprehensive prompt
+  const prompt = `You are conducting a phone screening interview for ${role.title} at ${organization.name}.
+
+ROLE DETAILS:
+- Position: ${role.title}
+- Location: ${role.location}
+- Salary Range: ${role.salary_currency || 'INR'} ${role.salary_min || 'Not specified'} - ${role.salary_max || 'Not specified'}
+
+ABOUT THE ROLE:
+${role.summary || 'No summary provided'}
+
+EVALUATION CRITERIA:
+${evaluationCriteria || 'Assess general fit for the role'}
+
+SCREENING QUESTIONS YOU MUST ASK:
+${questions.map((q: any, i: number) => `${i + 1}. ${q.text || q}`).join('\n')}
+
+FAQs YOU CAN ANSWER IF ASKED:
+${faq.map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n')}
+
+CALL SETTINGS:
+- Timezone: ${role.call_window?.timezone || organization.timezone || 'Asia/Kolkata'}
+- Working Hours: ${role.call_window?.allowedHours?.start || '9:00'} - ${role.call_window?.allowedHours?.end || '18:00'}
+
+INSTRUCTIONS:
+1. Be professional, friendly, and conversational
+2. Ask each screening question and listen carefully to responses
+3. If the candidate speaks Hindi or a regional language, you may respond in the same language
+4. Take notes on their answers for evaluation
+5. Answer any questions they have about the role using the FAQs
+6. Thank them for their time at the end
+7. Do not make any hiring decisions during the call
+
+IMPORTANT: Keep the conversation natural and engaging. Listen actively and ask follow-up questions when appropriate.`;
+
+  return {
+    name: `${role.title} - ${organization.name}`,
+    conversation_config: {
+      asr: {
+        quality: "high",
+        provider: "elevenlabs",
+        user_input_audio_format: "pcm_16000",
+        keywords: keywords
+      },
+      tts: {
+        voice_id: "21m00Tcm4TlvDq8ikWAM", // Rachel - professional female voice
+        model_id: "eleven_turbo_v2_5",
+      },
+      llm: {
+        model: "gpt-4o",
+        prompt: {
+          prompt: prompt
+        },
+        first_message: firstMessage,
+        temperature: 0.7,
+        max_tokens: 150
+      },
+      turn: {
+        turn_timeout: 10,
+        mode: "silence_detection",
+        silence_duration_ms: 2000
+      }
+    },
+    platform_settings: {
+      max_duration: 1800, // 30 minutes max
+      enable_backchannel: true,
+      conversation_id_prefix: `role-${role.id}`
+    },
+    tags: [
+      `org-${organization.id}`,
+      `role-${role.id}`,
+      'screening-agent',
+      organization.country || 'IN'
+    ]
+  };
+}
+
+function extractKeywords(role: any): string[] {
+  const keywords = [];
+  
+  // Add location-based keywords
+  if (role.location) {
+    keywords.push(...role.location.split(/[\s,]+/));
+  }
+  
+  // Add common Indian names and terms
+  keywords.push(
+    'Bangalore', 'Bengaluru', 'Mumbai', 'Delhi', 'Chennai', 'Hyderabad', 'Pune',
+    'lakhs', 'crores', 'INR', 'rupees',
+    'fresher', 'experienced', 'notice period'
+  );
+  
+  // Add role-specific technical terms from title
+  if (role.title) {
+    keywords.push(...role.title.split(/[\s-]+/));
+  }
+  
+  // Add skills if available
+  if (role.required_skills) {
+    keywords.push(...role.required_skills);
+  }
+  
+  return [...new Set(keywords)]; // Remove duplicates
+}
+
 // Helper to ensure demo setup is complete
 async function ensureDemoSetup(supabase: any) {
   // Check if user is already a member of the organization
@@ -101,44 +218,14 @@ serve(async (req) => {
           });
         }
 
-        // Create agent configuration
-        const agentConfig = {
-          name: `${role.title} Screening Agent`,
-          first_message: `Hello! I'm calling from Demo Company regarding your application for the ${role.title} position. Do you have a few minutes to discuss the role?`,
-          system_prompt: `You are a professional recruiter conducting a phone screening for the ${role.title} position at Demo Company, located in ${role.location}.
-
-Role Summary: ${role.summary || 'No summary provided'}
-
-Evaluation Criteria: ${role.evaluation_criteria || 'Standard evaluation'}
-
-Your task is to:
-1. Introduce yourself professionally
-2. Ask the screening questions provided
-3. Answer any questions the candidate may have using the FAQ information
-4. Be conversational and natural
-5. Evaluate the candidate based on the provided criteria
-
-Screening Questions:
-${role.questions ? JSON.stringify(role.questions, null, 2) : 'No specific questions'}
-
-Salary Range: ${role.salary_currency} ${role.salary_min} - ${role.salary_max}
-
-FAQs:
-${role.faq ? JSON.stringify(role.faq, null, 2) : 'No FAQs provided'}
-
-Evaluation Rules:
-${role.rules ? JSON.stringify(role.rules, null, 2) : 'No specific rules'}
-
-Remember to:
-- Be professional and courteous
-- Listen actively to responses
-- Take note of important information
-- Thank the candidate for their time`,
-          language: 'en',
-          voice_id: 'N2lVS1w4EtoT3dr4eOWO', // Callum voice
-          temperature: 0.7,
-          webhook_url: `https://yfuroouzxmxlvkwsmtny.supabase.co/functions/v1/elevenlabs-webhook`,
-        };
+        // Generate comprehensive agent configuration
+        const agentConfig = generateAgentConfig(role, {
+          id: DEMO_ORG_ID,
+          name: 'Demo Company',
+          company_domain: 'demo.com',
+          timezone: 'Asia/Kolkata',
+          country: 'IN'
+        });
 
         // Create agent in ElevenLabs - no simulation, real API only
         const response = await fetch('https://api.elevenlabs.io/v1/convai/agents/create', {

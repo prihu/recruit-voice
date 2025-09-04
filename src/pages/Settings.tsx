@@ -3,14 +3,15 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from '@/hooks/use-toast';
-import { TestTube, Check, X, Loader2 } from 'lucide-react';
+import { TestTube, Check, X, Loader2, AlertCircle, Key } from 'lucide-react';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
 
 export default function Settings() {
   const demoAPI = useDemoAPI();
   const [isTestingConnection, setIsTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connected' | 'error'>('idle');
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connected' | 'error' | 'missing-key'>('idle');
 
   const testElevenLabsConnection = async () => {
     setIsTestingConnection(true);
@@ -33,22 +34,24 @@ export default function Settings() {
       if (response.ok && data.success) {
         setConnectionStatus('connected');
         toast({
-          title: "Success",
-          description: "ElevenLabs API is configured and working",
+          title: "✅ Connection Successful",
+          description: "ElevenLabs API is configured and working correctly",
         });
       } else {
-        setConnectionStatus('error');
+        const isMissingKey = data.error?.includes('API key not configured');
+        setConnectionStatus(isMissingKey ? 'missing-key' : 'error');
+        
         toast({
-          title: "Connection Failed",
-          description: data.error || "ElevenLabs API key not configured",
+          title: isMissingKey ? "API Key Missing" : "Connection Failed",
+          description: data.error || "Failed to connect to ElevenLabs API",
           variant: "destructive"
         });
       }
     } catch (error) {
       setConnectionStatus('error');
       toast({
-        title: "Connection Failed",
-        description: "Could not test ElevenLabs connection",
+        title: "Connection Test Failed",
+        description: "Could not test ElevenLabs connection. Please try again.",
         variant: "destructive"
       });
     } finally {
