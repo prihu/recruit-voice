@@ -156,15 +156,27 @@ Note-taking Framework:
   return {
     name: `${role.title} - ${organization.name}`,
     conversation_config: {
-      first_message: `Hello! This is a screening call from ${organization.name} regarding your application for the ${role.title} position. I'm calling to learn more about your background and experience. Is this a good time to talk for about 10 to 15 minutes?`,
-      tts: {
-        voice_id: "21m00Tcm4TlvDq8ikWAM" // Default to Rachel voice
-      },
-      llm: {
-        provider: "openai",
-        model: "gpt-4o-mini",
+      agent: {
         prompt: prompt,
-        max_tokens: 150
+        first_message: `Hello! This is a screening call from ${organization.name} regarding your application for the ${role.title} position. I'm calling to learn more about your background and experience. Is this a good time to talk for about 10 to 15 minutes?`,
+        language: "en",
+        llm: {
+          provider: "openai",
+          model: "gpt-4o-mini"
+        },
+        tools: []
+      },
+      tts: {
+        voice_id: "21m00Tcm4TlvDq8ikWAM", // Default to Rachel voice
+        model: "eleven_multilingual_v2"
+      },
+      asr: {
+        model: "nova-2-general",
+        language: "auto"
+      },
+      conversation: {
+        max_duration_seconds: 1800, // 30 minutes
+        text_only: false
       }
     },
     platform_settings: {
@@ -392,13 +404,16 @@ serve(async (req) => {
 
         // Only process successful responses
         const agent = await response.json();
+        console.log('Agent created successfully. Response:', JSON.stringify(agent, null, 2));
+        
         const agentId = agent.agent_id;
         
         if (!agentId) {
           console.error('No agent_id in ElevenLabs response:', agent);
           return new Response(JSON.stringify({ 
             error: 'Invalid response from ElevenLabs API',
-            details: 'No agent_id returned'
+            details: 'No agent_id returned',
+            fullResponse: agent
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 500,
@@ -428,15 +443,41 @@ serve(async (req) => {
           });
         }
 
-        // Log successful agent creation
-        await supabase
-          .from('agent_archive_log')
-          .insert({
-            role_id: roleId,
-            organization_id: DEMO_ORG_ID,
-            agent_id: agentId,
-            reason: 'Agent created via demo API',
+        // Log successful agent creation (ignore errors if table doesn't exist)
+        try {
+          await supabase
+            .from('agent_archive_log')
+            .insert({
+              role_id: roleId,
+              organization_id: DEMO_ORG_ID,
+              agent_id: agentId,
+              reason: 'Agent created via demo API',
+            });
+        } catch (logError) {
+          console.warn('Could not log agent creation:', logError);
+        }
+
+        // Optional: Fetch the agent back to verify configuration
+        try {
+          const verifyResponse = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+            method: 'GET',
+            headers: {
+              'xi-api-key': elevenLabsApiKey,
+            },
           });
+          
+          if (verifyResponse.ok) {
+            const verifiedAgent = await verifyResponse.json();
+            console.log('Verified agent configuration:', {
+              agentId: verifiedAgent.agent_id,
+              hasPrompt: !!verifiedAgent.conversation_config?.agent?.prompt,
+              promptLength: verifiedAgent.conversation_config?.agent?.prompt?.length,
+              firstMessageExists: !!verifiedAgent.conversation_config?.agent?.first_message,
+            });
+          }
+        } catch (verifyError) {
+          console.warn('Could not verify agent configuration:', verifyError);
+        }
 
         return new Response(JSON.stringify({
           success: true,
@@ -457,6 +498,39 @@ serve(async (req) => {
           });
         }
 
+        let updatePayload = updates;
+        
+        // If roleId is provided, regenerate the full agent configuration
+        if (updates.roleId) {
+          const { data: role, error: roleError } = await supabase
+            .from('roles')
+            .select('*')
+            .eq('id', updates.roleId)
+            .eq('organization_id', DEMO_ORG_ID)
+            .single();
+
+          if (roleError || !role) {
+            return new Response(JSON.stringify({ error: 'Role not found' }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              status: 404,
+            });
+          }
+
+          // Generate updated configuration
+          const agentConfig = generateAgentConfig(role, {
+            id: DEMO_ORG_ID,
+            name: 'Demo Company',
+            company_domain: 'demo.com',
+            timezone: 'Asia/Kolkata',
+            country: 'IN'
+          });
+          
+          // Use the generated config as the update payload
+          updatePayload = agentConfig;
+          
+          console.log('Updating agent with regenerated configuration:', JSON.stringify(updatePayload, null, 2));
+        }
+
         // Update agent in ElevenLabs
         const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
           method: 'PATCH',
@@ -464,23 +538,65 @@ serve(async (req) => {
             'xi-api-key': elevenLabsApiKey,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(updates),
+          body: JSON.stringify(updatePayload),
         });
 
         if (!response.ok) {
-          const error = await response.text();
-          console.error('Failed to update ElevenLabs agent:', error);
+          const errorText = await response.text();
+          let errorMessage = 'Failed to update ElevenLabs agent';
+          let errorDetails = errorText;
+          
+          try {
+            const errorJson = JSON.parse(errorText);
+            console.error('ElevenLabs update error JSON:', errorJson);
+            
+            // Parse error similar to create action
+            if (errorJson.detail) {
+              if (Array.isArray(errorJson.detail)) {
+                const validationErrors = errorJson.detail.map((err: any) => {
+                  const field = err.loc?.join('.') || 'unknown field';
+                  const msg = err.msg || 'validation error';
+                  return `${field}: ${msg}`;
+                }).join('; ');
+                errorMessage = `Update validation failed: ${validationErrors}`;
+              } else {
+                errorMessage = errorJson.detail.message || errorJson.detail;
+              }
+            } else if (errorJson.message) {
+              errorMessage = errorJson.message;
+            }
+            errorDetails = errorJson;
+          } catch (parseError) {
+            console.error('Failed to parse update error response:', parseError);
+          }
+          
           return new Response(JSON.stringify({ 
-            error: 'Failed to update voice agent',
-            details: error 
+            error: errorMessage,
+            details: errorDetails 
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 500,
+            status: response.status || 500,
           });
+        }
+
+        const updatedAgent = await response.json();
+        console.log('Agent updated successfully:', updatedAgent.agent_id);
+
+        // If roleId was provided, update the role's sync status
+        if (updates.roleId) {
+          await supabase
+            .from('roles')
+            .update({ 
+              agent_sync_status: 'synced',
+              agent_error_message: null,
+            })
+            .eq('id', updates.roleId)
+            .eq('organization_id', DEMO_ORG_ID);
         }
 
         return new Response(JSON.stringify({
           success: true,
+          agentId: updatedAgent.agent_id,
           message: 'Voice agent updated successfully',
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

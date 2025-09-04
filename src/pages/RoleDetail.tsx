@@ -234,7 +234,18 @@ export default function RoleDetail() {
 
     setCreatingAgent(true);
     try {
-      const data = await demoAPI.createAgent(id);
+      let data;
+      
+      // Check if we should update existing agent or create new one
+      if (agentId) {
+        // Update existing agent with the current role configuration
+        console.log('Updating existing agent:', agentId);
+        data = await demoAPI.updateAgent(agentId, { roleId: id });
+      } else {
+        // Create new agent
+        console.log('Creating new agent for role:', id);
+        data = await demoAPI.createAgent(id);
+      }
       
       if (data?.success) {
         setAgentId(data.agentId);
@@ -242,7 +253,7 @@ export default function RoleDetail() {
         setAgentError(null);
         toast({
           title: "Success",
-          description: data.message || "Agent configured successfully",
+          description: data.message || (agentId ? "Agent updated successfully" : "Agent created successfully"),
         });
         
         // Agent ID is already updated in the database by the edge function
@@ -253,7 +264,7 @@ export default function RoleDetail() {
       setAgentStatus('failed');
       
       // Extract detailed error message from the response
-      let errorMessage = 'Failed to configure agent';
+      let errorMessage = agentId ? 'Failed to update agent' : 'Failed to create agent';
       let errorDetails = '';
       
       // Handle different error structures
