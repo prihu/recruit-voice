@@ -73,16 +73,9 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    // Get ElevenLabs API key
-    const elevenLabsApiKey = Deno.env.get('ELEVENLABS_API_KEY');
-    if (!elevenLabsApiKey) {
-      return new Response(JSON.stringify({ 
-        error: 'ElevenLabs API key not configured' 
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500,
-      });
-    }
+    // Get ElevenLabs API key (may be empty in demo; actions handle this)
+    const elevenLabsApiKey = Deno.env.get('ELEVENLABS_API_KEY') || '';
+
 
     switch (action) {
       case 'create': {

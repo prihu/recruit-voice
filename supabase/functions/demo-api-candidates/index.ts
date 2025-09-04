@@ -139,17 +139,54 @@ serve(async (req) => {
             });
           }
 
-          // Add demo organization ID to all candidates, email is optional
-          const candidatesWithOrg = candidates.map(candidate => ({
-            ...candidate,
-            email: candidate.email || null,
-            organization_id: DEMO_ORG_ID,
-            user_id: demoUserId,
-          }));
+          // Sanitize and map incoming candidate fields to DB columns
+          const candidatesToInsert = candidates
+            .map((c: any) => {
+              const skills = Array.isArray(c.skills)
+                ? c.skills
+                : typeof c.skills === 'string'
+                  ? c.skills.split(/[;,]/).map((s: string) => s.trim()).filter(Boolean)
+                  : null;
+              const expYears = Number.isFinite(parseInt(c.expYears))
+                ? parseInt(c.expYears)
+                : Number.isFinite(parseInt(c.exp_years))
+                  ? parseInt(c.exp_years)
+                  : null;
+              const salaryExp = Number.isFinite(parseInt(c.salaryExpectation))
+                ? parseInt(c.salaryExpectation)
+                : Number.isFinite(parseInt(c.salary_expectation))
+                  ? parseInt(c.salary_expectation)
+                  : null;
+
+              const record: any = {
+                name: c.name?.toString().trim(),
+                phone: c.phone?.toString().trim(),
+                email: c.email || null, // optional
+                skills: skills,
+                exp_years: expYears,
+                salary_expectation: salaryExp,
+                location_pref: c.locationPref || c.location_pref || null,
+                language: c.language || 'en',
+                organization_id: DEMO_ORG_ID,
+                user_id: demoUserId,
+              };
+
+              // Require minimal fields
+              if (!record.name || !record.phone) return null;
+              return record;
+            })
+            .filter(Boolean);
+
+          if (candidatesToInsert.length === 0) {
+            return new Response(JSON.stringify({ error: 'No valid candidates to import' }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              status: 400,
+            });
+          }
 
           const { data: insertedCandidates, error } = await supabase
             .from('candidates')
-            .insert(candidatesWithOrg)
+            .insert(candidatesToInsert)
             .select();
 
           if (error) {
