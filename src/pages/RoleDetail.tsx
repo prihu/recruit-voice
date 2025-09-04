@@ -234,8 +234,8 @@ export default function RoleDetail() {
           description: data.message || "Agent configured successfully",
         });
         
-        // Update the role with agent ID
-        await demoAPI.updateAgentConfig(id, data.agentId);
+        // Agent ID is already updated in the database by the edge function
+        // No need for additional updateAgentConfig call
       }
     } catch (error: any) {
       console.error('Error with agent:', error);

@@ -242,9 +242,14 @@ export function useDemoAPI() {
 
   const updateAgentConfig = async (roleId: string, agentId: string) => {
     if (DEMO_MODE) {
-      return fetchDemoAPI(`${DEMO_ENDPOINTS.roles}/${roleId}/agent`, {
+      // Update the role directly with the agent ID
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.roles}/${roleId}`, {
         method: 'PUT',
-        body: JSON.stringify({ agentId }),
+        body: JSON.stringify({ 
+          voice_agent_id: agentId, 
+          voice_enabled: true,
+          agent_sync_status: 'synced'
+        }),
       });
     }
     const { data, error } = await supabase
