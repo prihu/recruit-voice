@@ -12,8 +12,10 @@ export function useDemoAPI() {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'API request failed');
+      const errorData = await response.json();
+      // Throw the entire error object, not just a simple Error
+      // This preserves the full structure for error handling
+      throw errorData;
     }
 
     return response.json();

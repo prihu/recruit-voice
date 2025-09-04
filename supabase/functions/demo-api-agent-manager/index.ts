@@ -16,9 +16,6 @@ function generateAgentConfig(role: any, organization: any) {
   const faq = role.faq || [];
   const evaluationCriteria = role.evaluation_criteria || role.rules || '';
   
-  // Extract keywords from role for better ASR
-  const keywords = extractKeywords(role);
-  
   // Generate greeting based on context
   const firstMessage = `Hello! This is an automated screening call from ${organization.name || 'our company'} for the ${role.title} position. Is this a good time to talk for about 10-15 minutes?`;
   
@@ -57,40 +54,34 @@ INSTRUCTIONS:
 
 IMPORTANT: Keep the conversation natural and engaging. Listen actively and ask follow-up questions when appropriate.`;
 
-  return {
+  // Create minimal valid configuration
+  // Based on ElevenLabs API requirements, we use a simplified structure
+  const agentConfig = {
     name: `${role.title} - ${organization.name}`,
     conversation_config: {
-      asr: {
-        provider: "elevenlabs",
-        quality: "high",
-        user_input_audio_format: "pcm_16000",
-        keywords: keywords
-      },
+      // Move first_message to root of conversation_config
+      first_message: firstMessage,
+      
+      // Minimal TTS configuration
       tts: {
-        provider: "elevenlabs",
-        voice_id: "21m00Tcm4TlvDq8ikWAM", // Rachel - professional female voice
-        model_id: "eleven_turbo_v2_5"
+        voice_id: "21m00Tcm4TlvDq8ikWAM" // Rachel - professional female voice
       },
+      
+      // Minimal LLM configuration with correct structure
       llm: {
         provider: "openai",
-        model_id: "gpt-4o",  // Changed from 'model' to 'model_id'
-        prompt: {
-          prompt: prompt
-        },
-        first_message: firstMessage,
-        // Removed temperature as it's not supported by newer models
-        max_completion_tokens: 150  // Changed from max_tokens
-      },
-      turn: {
-        mode: "silence",  // ElevenLabs API expects "silence" or "turn"
-        turn_timeout: 10,
-        silence_duration_ms: 2000
+        model: "gpt-4o-mini", // Use widely supported model
+        prompt: prompt,
+        max_tokens: 150
       }
-    },
+    }
+  };
+
+  // Add optional platform settings if needed
+  const fullConfig = {
+    ...agentConfig,
     platform_settings: {
-      max_duration: 1800, // 30 minutes max
-      enable_backchannel: true,
-      conversation_id_prefix: `role-${role.id}`
+      max_duration: 1800 // 30 minutes max
     },
     tags: [
       `org-${organization.id}`,
@@ -99,6 +90,8 @@ IMPORTANT: Keep the conversation natural and engaging. Listen actively and ask f
       organization.country || 'IN'
     ]
   };
+
+  return fullConfig;
 }
 
 function extractKeywords(role: any): string[] {
@@ -249,31 +242,51 @@ serve(async (req) => {
           
           try {
             const errorJson = JSON.parse(errorText);
-            // Handle ElevenLabs validation errors which come as an array
-            if (Array.isArray(errorJson.detail)) {
-              const validationErrors = errorJson.detail.map((err: any) => {
-                const field = err.loc?.join('.') || 'unknown field';
-                const msg = err.msg || 'validation error';
-                const type = err.type || '';
-                return `${field}: ${msg}${type ? ` (${type})` : ''}`;
-              }).join('; ');
-              errorMessage = `Configuration validation failed: ${validationErrors}`;
-              console.error('Validation errors from ElevenLabs:', errorJson.detail);
-            } else if (errorJson.status === 'invalid_agent_config') {
-              errorMessage = `Invalid agent configuration: ${errorJson.message || 'Please check the configuration structure'}`;
+            console.error('ElevenLabs API error JSON:', errorJson);
+            
+            // Handle different error response structures
+            if (errorJson.detail) {
+              if (Array.isArray(errorJson.detail)) {
+                // Handle validation errors which come as an array
+                const validationErrors = errorJson.detail.map((err: any) => {
+                  const field = err.loc?.join('.') || 'unknown field';
+                  const msg = err.msg || 'validation error';
+                  const type = err.type || '';
+                  return `${field}: ${msg}${type ? ` (${type})` : ''}`;
+                }).join('; ');
+                errorMessage = `Configuration validation failed: ${validationErrors}`;
+              } else if (typeof errorJson.detail === 'object') {
+                // Handle object-style error detail
+                if (errorJson.detail.status === 'invalid_agent_config') {
+                  errorMessage = errorJson.detail.message || 'Invalid agent configuration';
+                } else {
+                  errorMessage = errorJson.detail.message || JSON.stringify(errorJson.detail);
+                }
+              } else {
+                // Handle string detail
+                errorMessage = errorJson.detail;
+              }
+            } else if (errorJson.message) {
+              errorMessage = errorJson.message;
+            } else if (errorJson.error) {
+              errorMessage = errorJson.error;
             } else {
-              errorMessage = errorJson.detail?.message || errorJson.detail || errorJson.message || errorMessage;
+              // If no standard error field, stringify the whole response
+              errorMessage = JSON.stringify(errorJson);
             }
+            
             errorDetails = errorJson;
           } catch (parseError) {
             // errorText is not JSON, use as is
             console.error('Failed to parse error response:', parseError);
+            errorMessage = errorText || 'Unknown error from ElevenLabs API';
           }
           
           console.error('ElevenLabs API error:', {
             status: response.status,
             message: errorMessage,
-            details: errorDetails
+            details: errorDetails,
+            rawText: errorText
           });
           
           // Return detailed error response - no simulation
