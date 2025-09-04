@@ -17,23 +17,38 @@ export default function Settings() {
     setConnectionStatus('idle');
 
     try {
-      // Test the connection using demo API
-      const data = await demoAPI.testConnection();
-
-      if (data?.success) {
+      // Test the actual ElevenLabs API configuration
+      const response = await fetch('https://yfuroouzxmxlvkwsmtny.supabase.co/functions/v1/demo-api-agent-manager', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'test-connection'
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
         setConnectionStatus('connected');
         toast({
           title: "Success",
-          description: "Successfully connected to ElevenLabs API (Demo Mode)",
+          description: "ElevenLabs API is configured and working",
         });
       } else {
-        throw new Error('Invalid response from ElevenLabs');
+        setConnectionStatus('error');
+        toast({
+          title: "Connection Failed",
+          description: data.error || "ElevenLabs API key not configured",
+          variant: "destructive"
+        });
       }
     } catch (error) {
       setConnectionStatus('error');
       toast({
         title: "Connection Failed",
-        description: error instanceof Error ? error.message : "Failed to connect to ElevenLabs",
+        description: "Could not test ElevenLabs connection",
         variant: "destructive"
       });
     } finally {

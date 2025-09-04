@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Papa from 'papaparse';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,175 +27,215 @@ import {
   Upload, 
   FileSpreadsheet,
   Check,
-  X,
-  AlertCircle,
   Download,
-  ArrowRight,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
+import { validateIndianPhone } from '@/utils/indianPhoneValidator';
 
 export default function CandidateImport() {
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [mappingStep, setMappingStep] = useState(false);
   const [previewData, setPreviewData] = useState<any[]>([]);
-  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
-  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [roles, setRoles] = useState<any[]>([]);
+  const [hasRoleColumn, setHasRoleColumn] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
   const demoAPI = useDemoAPI();
 
-  const systemFields = [
-    { value: 'name', label: 'Name (Required)' },
-    { value: 'phone', label: 'Phone Number (Indian)' },
-    { value: 'email', label: 'Email (Required)' },
-    { value: 'external_id', label: 'External ID' },
-    { value: 'skills', label: 'Skills (semicolon separated)' },
-    { value: 'exp_years', label: 'Experience Years' },
-    { value: 'location_pref', label: 'Location Preference' },
-    { value: 'salary_expectation', label: 'Salary Expectation (INR)' },
-    { value: 'preferred_language', label: 'Preferred Language' }
-  ];
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
-    if (uploadedFile && uploadedFile.type === 'text/csv') {
-      setFile(uploadedFile);
-      
-      // Parse CSV file
-      const text = await uploadedFile.text();
-      const lines = text.split('\n').filter(line => line.trim());
-      const headers = lines[0].split(',').map(h => h.trim());
-      setCsvHeaders(headers);
-      
-      // Parse first few rows for preview
-      const preview = [];
-      for (let i = 1; i < Math.min(4, lines.length); i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        const row: any = {};
-        headers.forEach((header, index) => {
-          row[header] = values[index] || '';
-        });
-        preview.push(row);
-      }
-      
-      setPreviewData(preview);
-      setMappingStep(true);
-      
-      // Fetch roles
-      const rolesData = await demoAPI.getRoles();
-      setRoles(rolesData || []);
-    } else {
-      toast({
-        title: 'Invalid File',
-        description: 'Please upload a valid CSV file',
-        variant: 'destructive',
-      });
-    }
+    if (!uploadedFile) return;
+
+    setIsProcessing(true);
+    setFile(uploadedFile);
+
+    Papa.parse(uploadedFile, {
+      complete: async (result) => {
+        if (result.data && result.data.length > 0) {
+          const data = result.data as any[];
+          const headers = Object.keys(data[0]);
+          
+          // Check if we have the minimum required fields
+          const hasName = headers.some(h => h.toLowerCase().includes('name'));
+          const hasPhone = headers.some(h => h.toLowerCase().includes('phone') || h.toLowerCase().includes('mobile'));
+          const hasRole = headers.some(h => h.toLowerCase().includes('role') || h.toLowerCase().includes('position') || h.toLowerCase().includes('job'));
+          
+          if (!hasName || !hasPhone) {
+            toast({
+              title: "Invalid CSV Format",
+              description: "CSV must contain 'Name' and 'Phone' columns",
+              variant: "destructive"
+            });
+            setFile(null);
+            setIsProcessing(false);
+            return;
+          }
+          
+          setHasRoleColumn(hasRole);
+          setPreviewData(data.slice(0, 5));
+          
+          // Fetch roles for selection if no role column
+          if (!hasRole) {
+            try {
+              const rolesData = await demoAPI.getRoles();
+              setRoles(rolesData || []);
+              if (rolesData && rolesData.length === 0) {
+                toast({
+                  title: "No Roles Available",
+                  description: "Please create a role first before importing candidates",
+                  variant: "destructive"
+                });
+              }
+            } catch (error) {
+              console.error('Error fetching roles:', error);
+              toast({
+                title: "Error",
+                description: "Could not fetch roles",
+                variant: "destructive"
+              });
+            }
+          }
+        }
+        setIsProcessing(false);
+      },
+      header: true,
+      skipEmptyLines: true,
+    });
   };
 
   const handleImport = async () => {
-    if (!file || !selectedRole) {
+    if (!file) return;
+    
+    if (!hasRoleColumn && !selectedRole) {
       toast({
-        title: 'Missing Information',
-        description: 'Please select a role for screening',
-        variant: 'destructive',
+        title: "Role Required",
+        description: "Please select a role for screening",
+        variant: "destructive"
       });
       return;
     }
 
     setIsProcessing(true);
-    try {
-      const text = await file.text();
-      const lines = text.split('\n').filter(line => line.trim());
-      const headers = lines[0].split(',').map(h => h.trim());
-      
-      const candidates = [];
-      const errors = [];
-      
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        if (values.length === headers.length) {
-          const candidate: any = {};
-          let hasError = false;
+    
+    Papa.parse(file, {
+      complete: async (result) => {
+        try {
+          const data = result.data as any[];
+          const candidates = [];
+          const errors = [];
+          let roleMap: Record<string, string> = {};
           
-          headers.forEach((header, index) => {
-            const mappedField = columnMapping[header];
-            if (mappedField) {
-              const value = values[index];
+          // If CSV has role column, fetch all roles to map titles to IDs
+          if (hasRoleColumn) {
+            const rolesData = await demoAPI.getRoles();
+            rolesData.forEach((role: any) => {
+              roleMap[role.title.toLowerCase()] = role.id;
+            });
+          }
+          
+          for (let i = 0; i < data.length; i++) {
+            const row = data[i];
+            const candidate: any = {};
+            let roleId = selectedRole;
+            
+            // Process each field
+            Object.keys(row).forEach(key => {
+              const value = row[key];
+              const keyLower = key.toLowerCase();
               
-              if (mappedField === 'skills') {
-                candidate[mappedField] = value.split(';').map(s => s.trim());
-              } else if (mappedField === 'exp_years' || mappedField === 'salary_expectation') {
-                candidate[mappedField] = parseInt(value) || 0;
-              } else if (mappedField === 'phone') {
-                // Validate Indian phone number
-                let phone = value.replace(/\D/g, '');
-                if (!phone.startsWith('91') && phone.length === 10) {
-                  phone = '91' + phone;
-                }
-                if (phone.length !== 12 || !phone.startsWith('91')) {
-                  errors.push(`Row ${i}: Invalid Indian phone number: ${value}`);
-                  hasError = true;
+              if (keyLower.includes('name')) {
+                candidate.name = value;
+              } else if (keyLower.includes('phone') || keyLower.includes('mobile')) {
+                // Validate and format phone number
+                const validation = validateIndianPhone(value);
+                if (validation.isValid) {
+                  candidate.phone = validation.formatted;
                 } else {
-                  candidate.phone = '+' + phone;
+                  errors.push(`Row ${i + 1}: Invalid phone number: ${value}`);
                 }
-              } else {
-                candidate[mappedField] = value;
+              } else if (keyLower.includes('email')) {
+                candidate.email = value || null; // Email is now optional
+              } else if (keyLower.includes('skill')) {
+                candidate.skills = value ? value.split(/[,;]/).map((s: string) => s.trim()) : [];
+              } else if (keyLower.includes('exp') || keyLower.includes('year')) {
+                candidate.expYears = parseInt(value) || null;
+              } else if (keyLower.includes('location')) {
+                candidate.locationPref = value;
+              } else if (keyLower.includes('salary')) {
+                candidate.salaryExpectation = parseInt(value) || null;
+              } else if (keyLower.includes('language')) {
+                candidate.language = value || 'en';
+              } else if (hasRoleColumn && (keyLower.includes('role') || keyLower.includes('position') || keyLower.includes('job'))) {
+                // Map role title to role ID
+                const roleTitle = value.toLowerCase();
+                roleId = roleMap[roleTitle];
+                if (!roleId) {
+                  errors.push(`Row ${i + 1}: Unknown role: ${value}`);
+                }
               }
+            });
+            
+            // Only add if we have name and valid phone
+            if (candidate.name && candidate.phone) {
+              candidate.roleId = roleId; // Attach role for screening
+              candidates.push(candidate);
             }
+          }
+          
+          if (errors.length > 0) {
+            toast({
+              title: "Import Warnings",
+              description: errors.slice(0, 3).join('\n') + (errors.length > 3 ? `\n...and ${errors.length - 3} more` : ''),
+              variant: "destructive"
+            });
+          }
+          
+          if (candidates.length === 0) {
+            toast({
+              title: "No Valid Candidates",
+              description: "No candidates could be imported from the CSV",
+              variant: "destructive"
+            });
+            return;
+          }
+          
+          // Import candidates - the API will automatically create screens if roleId is provided
+          await demoAPI.bulkImportCandidates(candidates);
+          
+          toast({
+            title: 'Import Successful',
+            description: `Imported ${candidates.length} candidates and created screening sessions`,
           });
           
-          // Set default language if not provided
-          if (!candidate.preferred_language) {
-            candidate.preferred_language = 'English';
-          }
-          
-          // Only add if we have at least name, email, and valid phone
-          if (candidate.name && candidate.email && !hasError) {
-            candidates.push(candidate);
-          }
+          // Navigate to screens page to show the newly created screens
+          navigate('/screens');
+        } catch (error) {
+          console.error('Import error:', error);
+          toast({
+            title: 'Import Failed',
+            description: 'There was an error importing candidates',
+            variant: 'destructive',
+          });
+        } finally {
+          setIsProcessing(false);
         }
-      }
-      
-      if (errors.length > 0) {
-        toast({
-          title: "Phone Number Validation Errors",
-          description: errors.slice(0, 5).join('\n') + (errors.length > 5 ? `\n...and ${errors.length - 5} more` : ''),
-          variant: "destructive"
-        });
-      }
-      
-      // Insert candidates into database using demo API
-      const result = await demoAPI.bulkImportCandidates(candidates);
-      
-      toast({
-        title: 'Import Successful',
-        description: `Imported ${candidates.length} candidates successfully`,
-      });
-      
-      navigate('/screens');
-    } catch (error) {
-      console.error('Import error:', error);
-      toast({
-        title: 'Import Failed',
-        description: 'There was an error importing candidates',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+      },
+      header: true,
+      skipEmptyLines: true,
+    });
   };
 
   const downloadTemplate = () => {
-    const template = 'name,email,phone,skills,exp_years,location_pref,salary_expectation,preferred_language\n' +
-      'Rajesh Kumar,rajesh@example.com,9876543210,Python;Django;AWS,5,Bangalore,1200000,English\n' +
-      'Priya Sharma,priya@example.com,9876543211,JavaScript;React;Node.js,3,Mumbai,800000,Hindi\n' +
-      'Amit Patel,amit@example.com,9876543212,Java;Spring Boot;Microservices,7,Pune,1500000,English';
+    const template = 'Name,Phone\n' +
+      'Rajesh Kumar,9876543210\n' +
+      'Priya Sharma,9876543211\n' +
+      'Amit Patel,9876543212\n' +
+      '\n' +
+      '# Optional columns: Email, Skills (comma separated), Experience Years, Location, Salary Expectation, Language, Role Title';
     
     const blob = new Blob([template], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -206,165 +247,123 @@ export default function CandidateImport() {
 
   return (
     <AppLayout>
-      <div className="space-y-6 max-w-5xl mx-auto">
+      <div className="space-y-6 max-w-4xl mx-auto">
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Import Candidates</h1>
           <p className="text-muted-foreground mt-2">
-            Bulk import candidate data from CSV files for phone screening
+            Upload a CSV file with candidate names and phone numbers
           </p>
         </div>
 
-        {/* Import Methods */}
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card className="border-primary/20">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5" />
-                CSV Upload
-              </CardTitle>
-              <CardDescription>Upload a CSV file with candidate information including phone numbers</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {!mappingStep ? (
-                <div className="space-y-4">
-                  <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                    <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
-                    <Label htmlFor="csv-upload" className="cursor-pointer">
-                      <span className="text-primary underline">Click to upload</span> or drag and drop
-                    </Label>
-                    <Input
-                      id="csv-upload"
-                      type="file"
-                      accept=".csv"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                    <p className="text-xs text-muted-foreground mt-2">CSV files only, max 10MB</p>
-                    {file && (
-                      <Badge className="mt-3">
-                        {file.name} ({(file.size / 1024).toFixed(1)} KB)
-                      </Badge>
-                    )}
-                  </div>
-                  <Button variant="outline" className="w-full" onClick={downloadTemplate}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Template CSV
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <Badge className="mb-2 bg-success text-success-foreground">
-                    <Check className="w-3 h-3 mr-1" />
-                    File uploaded successfully
-                  </Badge>
-                  <p className="text-sm text-muted-foreground">
-                    Map your CSV columns to system fields below
-                  </p>
-                </div>
+        {/* Upload Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5" />
+              CSV Upload
+            </CardTitle>
+            <CardDescription>
+              Simple CSV format: Only Name and Phone are required
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="border-2 border-dashed rounded-lg p-6 text-center">
+              <Upload className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
+              <Label htmlFor="csv-upload" className="cursor-pointer">
+                <span className="text-primary underline">Click to upload</span> or drag and drop
+              </Label>
+              <Input
+                id="csv-upload"
+                type="file"
+                accept=".csv"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <p className="text-xs text-muted-foreground mt-2">CSV files only</p>
+              {file && (
+                <Badge className="mt-3">
+                  <Check className="w-3 h-3 mr-1" />
+                  {file.name}
+                </Badge>
               )}
-            </CardContent>
-          </Card>
+            </div>
+            
+            <Button variant="outline" className="w-full" onClick={downloadTemplate}>
+              <Download className="w-4 h-4 mr-2" />
+              Download Simple Template
+            </Button>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5" />
-                ATS Integration
-              </CardTitle>
-              <CardDescription>Connect to your ATS for automatic syncing</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="webhook-url">Webhook URL</Label>
-                  <Input 
-                    id="webhook-url"
-                    placeholder="https://api.your-ats.com/webhook"
-                    disabled
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="api-key">API Key</Label>
-                  <Input 
-                    id="api-key"
-                    type="password"
-                    placeholder="Enter your ATS API key"
-                    disabled
-                  />
-                </div>
-                <Button variant="outline" className="w-full" disabled>
-                  Connect ATS (Coming Soon)
-                </Button>
+            {/* Info Alert */}
+            <div className="rounded-lg bg-muted p-3 flex gap-2">
+              <AlertCircle className="w-4 h-4 text-muted-foreground mt-0.5" />
+              <div className="text-sm text-muted-foreground">
+                <p className="font-medium">Required columns:</p>
+                <ul className="list-disc list-inside mt-1">
+                  <li>Name - Candidate's full name</li>
+                  <li>Phone - Indian mobile number (10 digits)</li>
+                </ul>
+                <p className="mt-2 font-medium">Optional columns:</p>
+                <ul className="list-disc list-inside mt-1">
+                  <li>Role - Job title for automatic role assignment</li>
+                  <li>Email, Skills, Experience, Location, Salary</li>
+                </ul>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Column Mapping */}
-        {mappingStep && (
+        {/* Preview and Role Selection */}
+        {file && previewData.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Map CSV Columns</CardTitle>
-              <CardDescription>Match your CSV columns to candidate fields and select role for screening</CardDescription>
+              <CardTitle>Preview & Configuration</CardTitle>
+              <CardDescription>
+                Review candidates and {hasRoleColumn ? 'confirm import' : 'select screening role'}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Role Selection */}
-              <div className="space-y-2">
-                <Label>Select Role for Screening</Label>
-                <Select value={selectedRole} onValueChange={setSelectedRole}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a role..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.map(role => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.title} - {role.location}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                {csvHeaders.map((col) => (
-                  <div key={col} className="flex items-center gap-3">
-                    <Badge variant="outline" className="min-w-[80px]">{col}</Badge>
-                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                    <Select onValueChange={(value) => setColumnMapping({...columnMapping, [col]: value})}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select field..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {systemFields.map(field => (
-                          <SelectItem key={field.value} value={field.value}>
-                            {field.label}
+              {/* Role Selection (if no role column in CSV) */}
+              {!hasRoleColumn && (
+                <div className="space-y-2">
+                  <Label>Select Role for All Candidates</Label>
+                  <Select value={selectedRole} onValueChange={setSelectedRole}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a role for screening..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles.length > 0 ? (
+                        roles.map(role => (
+                          <SelectItem key={role.id} value={role.id}>
+                            {role.title} - {role.location}
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ))}
-              </div>
+                        ))
+                      ) : (
+                        <div className="p-2 text-sm text-muted-foreground">
+                          No roles available. Create a role first.
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               {/* Preview Table */}
               <div className="border rounded-lg overflow-hidden">
                 <Table>
-                  <TableCaption>Preview of first {previewData.length} rows</TableCaption>
+                  <TableCaption>Preview of first {previewData.length} candidates</TableCaption>
                   <TableHeader>
                     <TableRow>
-                      {csvHeaders.map((col) => (
-                        <TableHead key={col}>
-                          {columnMapping[col] || col}
-                        </TableHead>
+                      {Object.keys(previewData[0] || {}).map((header) => (
+                        <TableHead key={header}>{header}</TableHead>
                       ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {previewData.map((row, index) => (
                       <TableRow key={index}>
-                        {csvHeaders.map((header) => (
-                          <TableCell key={header}>{row[header]}</TableCell>
+                        {Object.values(row).map((value: any, i) => (
+                          <TableCell key={i}>{value}</TableCell>
                         ))}
                       </TableRow>
                     ))}
@@ -372,42 +371,25 @@ export default function CandidateImport() {
                 </Table>
               </div>
 
-              {/* Actions */}
-              <div className="flex justify-between items-center pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setMappingStep(false);
-                    setFile(null);
-                    setPreviewData([]);
-                    setCsvHeaders([]);
-                    setColumnMapping({});
-                  }}
+              {/* Import Button */}
+              <div className="flex justify-end">
+                <Button 
+                  onClick={handleImport}
+                  disabled={isProcessing || (!hasRoleColumn && !selectedRole)}
+                  className="bg-gradient-primary border-0"
                 >
-                  Cancel
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4 mr-2" />
+                      Import & Create Screens
+                    </>
+                  )}
                 </Button>
-                <div className="flex gap-2">
-                  <Badge variant="secondary">
-                    {previewData.length} candidates ready
-                  </Badge>
-                  <Button 
-                    onClick={handleImport}
-                    disabled={isProcessing || !selectedRole}
-                    className="bg-gradient-primary border-0"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Importing...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="w-4 h-4 mr-2" />
-                        Import Candidates
-                      </>
-                    )}
-                  </Button>
-                </div>
               </div>
             </CardContent>
           </Card>

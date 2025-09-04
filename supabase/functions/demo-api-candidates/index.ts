@@ -128,9 +128,9 @@ serve(async (req) => {
       case 'POST': {
         const body = await req.json();
 
-        if (isBulkImport) {
+        if (isBulkImport || Array.isArray(body)) {
           // Bulk import candidates
-          const { candidates } = body;
+          const candidates = Array.isArray(body) ? body : body.candidates;
           
           if (!Array.isArray(candidates)) {
             return new Response(JSON.stringify({ error: 'Candidates must be an array' }), {
@@ -139,9 +139,10 @@ serve(async (req) => {
             });
           }
 
-          // Add demo organization ID to all candidates
+          // Add demo organization ID to all candidates, email is optional
           const candidatesWithOrg = candidates.map(candidate => ({
             ...candidate,
+            email: candidate.email || null,
             organization_id: DEMO_ORG_ID,
             user_id: demoUserId,
           }));
@@ -155,9 +156,29 @@ serve(async (req) => {
             throw error;
           }
 
+          // Create screens for each candidate if they have a roleId
+          const screensToCreate = [];
+          for (const candidate of insertedCandidates || []) {
+            const originalCandidate = candidates.find(c => c.name === candidate.name);
+            if (originalCandidate?.roleId) {
+              screensToCreate.push({
+                role_id: originalCandidate.roleId,
+                candidate_id: candidate.id,
+                user_id: demoUserId,
+                organization_id: DEMO_ORG_ID,
+                status: 'pending',
+                attempts: 0,
+              });
+            }
+          }
+
+          if (screensToCreate.length > 0) {
+            await supabase.from('screens').insert(screensToCreate);
+          }
+
           return new Response(JSON.stringify({ 
             success: true, 
-            count: insertedCandidates.length,
+            count: insertedCandidates?.length || 0,
             candidates: insertedCandidates 
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

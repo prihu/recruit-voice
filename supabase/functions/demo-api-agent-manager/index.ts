@@ -289,6 +289,54 @@ Remember to:
         });
       }
 
+      case 'test-connection': {
+        // Simple test to check if API key exists
+        if (!elevenLabsApiKey) {
+          return new Response(JSON.stringify({ 
+            success: false,
+            error: 'ElevenLabs API key not configured. Please add ELEVENLABS_API_KEY to Supabase secrets.' 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200, // Return 200 with error in body for better error handling
+          });
+        }
+        
+        // Test the API key by fetching voices
+        const testResponse = await fetch('https://api.elevenlabs.io/v1/voices', {
+          method: 'GET',
+          headers: {
+            'xi-api-key': elevenLabsApiKey,
+          },
+        });
+        
+        if (!testResponse.ok) {
+          const errorText = await testResponse.text();
+          let errorMessage = 'Invalid ElevenLabs API key';
+          
+          if (testResponse.status === 401) {
+            errorMessage = 'Invalid API key. Please check your ElevenLabs API key.';
+          } else if (testResponse.status === 403) {
+            errorMessage = 'API key lacks required permissions.';
+          }
+          
+          return new Response(JSON.stringify({ 
+            success: false,
+            error: errorMessage,
+            details: errorText
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200,
+          });
+        }
+        
+        return new Response(JSON.stringify({
+          success: true,
+          message: 'ElevenLabs API connection successful',
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       case 'test-call': {
         if (!agentId) {
           return new Response(JSON.stringify({ error: 'agentId is required' }), {

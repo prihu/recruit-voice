@@ -235,7 +235,7 @@ export type Database = {
       candidates: {
         Row: {
           created_at: string | null
-          email: string
+          email: string | null
           exp_years: number | null
           external_id: string | null
           id: string
@@ -252,7 +252,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
-          email: string
+          email?: string | null
           exp_years?: number | null
           external_id?: string | null
           id?: string
@@ -269,7 +269,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
-          email?: string
+          email?: string | null
           exp_years?: number | null
           external_id?: string | null
           id?: string
