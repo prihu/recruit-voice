@@ -256,17 +256,28 @@ export default function RoleDetail() {
       let errorMessage = 'Failed to configure agent';
       let errorDetails = '';
       
-      if (error.response?.data) {
+      // Handle different error structures
+      if (error?.error) {
+        // Direct error object from response
+        errorMessage = error.error;
+        errorDetails = error.details || '';
+        if (error.helpText) {
+          errorMessage = `${errorMessage}. ${error.helpText}`;
+        }
+      } else if (error?.response?.data) {
+        // Axios-style error response
         const data = error.response.data;
         errorMessage = data.error || errorMessage;
         errorDetails = data.details || '';
-        
-        // Add help text if available
         if (data.helpText) {
           errorMessage = `${errorMessage}. ${data.helpText}`;
         }
-      } else if (error.message) {
+      } else if (error?.message) {
+        // Standard error message
         errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        // String error
+        errorMessage = error;
       }
       
       setAgentError(errorMessage);

@@ -81,7 +81,7 @@ IMPORTANT: Keep the conversation natural and engaging. Listen actively and ask f
       },
       turn: {
         turn_timeout: 10,
-        mode: "silence_detection",
+        mode: "silence",  // ElevenLabs API expects "silence" or "turn"
         silence_duration_ms: 2000
       }
     },
@@ -244,7 +244,15 @@ serve(async (req) => {
           
           try {
             const errorJson = JSON.parse(errorText);
-            errorMessage = errorJson.detail || errorJson.message || errorMessage;
+            // Handle ElevenLabs validation errors which come as an array
+            if (Array.isArray(errorJson.detail)) {
+              const validationErrors = errorJson.detail.map((err: any) => 
+                `${err.loc?.join('.')} - ${err.msg}`
+              ).join(', ');
+              errorMessage = `Validation error: ${validationErrors}`;
+            } else {
+              errorMessage = errorJson.detail || errorJson.message || errorMessage;
+            }
             errorDetails = errorJson;
           } catch {
             // errorText is not JSON, use as is
