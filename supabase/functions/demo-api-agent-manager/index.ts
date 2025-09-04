@@ -10,163 +10,173 @@ const corsHeaders = {
 const DEMO_ORG_ID = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
 const DEMO_USER_ID = '59dc7810-80b7-4a31-806a-bb0533526fab';
 
-// Advanced agent configuration generator
+// Advanced agent configuration generator following ElevenLabs prompting guide
 function generateAgentConfig(role: any, organization: any) {
   const questions = role.questions || [];
-  const faq = role.faq || [];
-  const evaluationCriteria = role.evaluation_criteria || role.rules || '';
+  const faqs = role.faq || [];
+  const rules = role.rules || [];
   
-  // Generate greeting based on context - personalized for the role
-  const firstMessage = `Hello! This is an automated screening call from ${organization.name || 'our company'} for the ${role.title} position. Is this a good time to talk for about 10-15 minutes?`;
-  
-  // Build comprehensive prompt with all role information
-  let prompt = `You are an AI phone screening agent conducting an interview for ${role.title} at ${organization.name}.
+  // Build structured screening questions
+  const screeningQuestions = questions.length > 0 
+    ? questions.map((q: any, idx: number) => {
+        let questionText = `   ${idx + 1}. ${q.text}`;
+        if (q.type === 'multi_choice' && q.options) {
+          questionText += ` (Options: ${q.options.join(', ')})`;
+        }
+        if (q.required) {
+          questionText += ' [REQUIRED]';
+        }
+        if (q.match_config) {
+          if (q.match_config.min_years) {
+            questionText += ` (Minimum ${q.match_config.min_years} years)`;
+          }
+          if (q.match_config.expected_answer !== undefined) {
+            questionText += ` (Expected: ${q.match_config.expected_answer})`;
+          }
+        }
+        return questionText;
+      }).join('\n')
+    : '   - General discussion about experience and background';
 
-## COMPANY INFORMATION
-Company: ${organization.name}
-Domain: ${organization.company_domain || 'Not specified'}
-Location: ${organization.country || 'India'}
+  const faqSection = faqs.length > 0
+    ? faqs.map((f: any) => `   Q: ${f.question}\n   A: ${f.answer}`).join('\n\n')
+    : '   Q: What is the work culture like?\n   A: We have a collaborative and innovative work environment.\n\n   Q: Are there growth opportunities?\n   A: Yes, we offer excellent career growth paths.';
 
-## JOB DETAILS
-Position: ${role.title}
-Location: ${role.location || 'Not specified'}
-Employment Type: ${role.employment_type || 'Full-time'}
-Experience Required: ${role.experience_level || 'Not specified'}
-Salary Range: ${role.salary_currency || 'INR'} ${role.salary_min ? role.salary_min.toLocaleString() : 'Not specified'} - ${role.salary_max ? role.salary_max.toLocaleString() : 'Not specified'}
+  const evaluationCriteria = rules.length > 0
+    ? rules.map((r: any) => {
+        const isRequired = r.is_required ? ' [REQUIRED]' : '';
+        const failureReason = r.failure_reason ? ` - ${r.failure_reason}` : '';
+        return `   - ${r.name}: ${r.condition.field} ${r.condition.operator} ${r.condition.value} (Weight: ${r.weight})${isRequired}${failureReason}`;
+      }).join('\n')
+    : '   - Technical skills and experience alignment\n   - Communication and interpersonal skills\n   - Cultural fit and motivation';
 
-## JOB DESCRIPTION
-${role.summary || 'No job description provided'}`;
+  // Build comprehensive prompt following ElevenLabs guide structure
+  const prompt = `# Personality
 
-  // Add responsibilities if available
-  if (role.responsibilities && role.responsibilities.length > 0) {
-    prompt += `
+You are a professional phone screening specialist conducting interviews for ${organization.name}.
+You are friendly, attentive, and genuinely interested in understanding candidate qualifications and fit.
+You balance professionalism with warmth, creating a comfortable environment for candidates to share their experience.
+You're naturally curious and empathetic, actively listening to responses and asking relevant follow-up questions when appropriate.
+You have deep knowledge about the role and organization, able to answer questions confidently and accurately.
 
-## KEY RESPONSIBILITIES
-${role.responsibilities.map((r: string, i: number) => `${i + 1}. ${r}`).join('\n')}`;
-  }
+# Environment
 
-  // Add required skills if available
-  if (role.required_skills && role.required_skills.length > 0) {
-    prompt += `
+You are conducting a phone screening interview for the ${role.title} position at ${organization.name}.
+This is a voice-only interaction where the candidate cannot see you, requiring clear verbal communication.
+The conversation is taking place during business hours in ${role.call_window?.timezone || 'Asia/Kolkata'} timezone.
+The candidate may be in various environments (home, office, commuting), so be mindful of potential distractions.
+You have access to the role requirements, evaluation criteria, and company information to guide the conversation.
 
-## REQUIRED SKILLS
-${role.required_skills.map((s: string) => `- ${s}`).join('\n')}`;
-  }
+# Tone
 
-  // Add evaluation criteria/rules
-  if (evaluationCriteria) {
-    prompt += `
+Your responses are professional yet conversational, keeping a natural flow while covering all required topics.
+You speak clearly and at a moderate pace, using occasional brief affirmations ("I see," "That's interesting," "Thank you for sharing that") to show active listening.
+You naturally incorporate conversational elements like "Let me ask you about..." or "That brings me to..." for smooth transitions.
+You periodically check for understanding with questions like "Does that answer your question?" or "Would you like more details about that?"
+You adapt your communication style based on the candidate's responses - more detailed for engaged candidates, more concise for those who seem pressed for time.
+For Indian candidates, you may respond in Hindi or regional languages if they initiate conversation in those languages, maintaining the same professional tone.
+You use strategic pauses (marked by "...") to give candidates time to think before answering complex questions.
 
-## EVALUATION CRITERIA AND RULES
+# Goal
+
+Your primary goal is to efficiently screen candidates for the ${role.title} position through a structured interview process:
+
+1. Initial engagement and consent:
+   - Confirm the candidate's identity and availability for the screening call
+   - Set expectations about the call duration (10-15 minutes)
+   - Create a comfortable atmosphere for open dialogue
+   - Briefly introduce the role and organization
+
+2. Core screening assessment:
+   - Position: ${role.title}
+   - Location: ${role.location}
+   - Salary Range: ${role.salary_band ? `INR ${role.salary_band.min} - ${role.salary_band.max}` : 'To be discussed based on experience'}
+   
+   About the Role:
+   ${role.summary || 'We are looking for a talented professional to join our growing team.'}
+   ${role.responsibilities ? `\n   Key Responsibilities:\n   ${role.responsibilities}` : ''}
+   ${role.skills ? `\n   Required Skills:\n   ${role.skills}` : ''}
+
+   Evaluation Criteria to assess:
 ${evaluationCriteria}
 
-IMPORTANT: Use these criteria to evaluate candidate responses. Take note of any red flags or concerns based on these rules.`;
-  }
+   Screening Questions you MUST ask:
+${screeningQuestions}
 
-  // Add screening questions
-  prompt += `
+3. Information exchange phase:
+   - Answer any questions the candidate has about the role, company, or process
+   - Provide clear, accurate information based on the FAQs
+   - Gauge candidate's interest level and availability
+   - Address any immediate concerns or clarifications
 
-## SCREENING QUESTIONS (ASK ALL OF THESE)
-You must ask each of the following questions and carefully document the candidate's responses:
+4. Call conclusion:
+   - Thank the candidate for their time and responses
+   - Explain the next steps in the recruitment process
+   - Provide a general timeline for when they might hear back
+   - End on a positive, professional note
 
-${questions.map((q: any, i: number) => {
-  const questionText = q.text || q;
-  const questionType = q.type || 'open';
-  return `${i + 1}. ${questionText}${questionType === 'required' ? ' [REQUIRED - Must get a clear answer]' : ''}`;
-}).join('\n')}`;
+Apply adaptive questioning: If a candidate provides brief answers, ask appropriate follow-up questions to gather sufficient information. If they elaborate extensively, politely guide the conversation back to remaining questions.
 
-  // Add FAQs
-  if (faq && faq.length > 0) {
-    prompt += `
+Success is measured by: collecting complete responses to all screening questions, accurately assessing candidate fit against evaluation criteria, providing helpful information about the role, and maintaining a positive candidate experience.
 
-## FREQUENTLY ASKED QUESTIONS
-If the candidate asks any of these questions, provide the following answers:
+# Guardrails
 
-${faq.map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n')}`;
-  }
+Remain strictly within the scope of the screening interview - do not make hiring decisions or commitments during the call.
+Never share other candidates' information or make comparisons between applicants.
+If asked about specific salary negotiations or benefits beyond what's provided, indicate these will be discussed in later stages.
+Maintain confidentiality about internal company information not included in the provided FAQs.
+Acknowledge when you don't have information rather than speculating, offering to have the appropriate team member follow up.
+Keep a professional tone even if candidates express frustration about the process or previous experiences.
+Do not discuss or reveal that you are an AI agent unless directly asked, and even then, focus on the screening purpose.
+Respect cultural sensitivities and adapt communication style appropriately for diverse candidates.
+If technical issues occur, offer to reschedule rather than conducting a poor-quality interview.
 
-  // Add call window settings
-  const timezone = role.call_window?.timezone || organization.timezone || 'Asia/Kolkata';
-  const startTime = role.call_window?.allowedHours?.start || '9:00';
-  const endTime = role.call_window?.allowedHours?.end || '18:00';
-  
-  prompt += `
+# Tools
 
-## CALL SETTINGS
-- Timezone: ${timezone}
-- Preferred Hours: ${startTime} - ${endTime}
-- Max Duration: 15-20 minutes
+FAQs you can reference to answer candidate questions:
+${faqSection}
 
-## CONVERSATION GUIDELINES
+Call Configuration:
+- Timezone: ${role.call_window?.timezone || 'Asia/Kolkata'}
+- Business Hours: ${role.call_window?.allowed_hours?.start || '9:00'} - ${role.call_window?.allowed_hours?.end || '18:00'}
+- Call Duration Target: 10-15 minutes
+- Maximum Duration: 30 minutes
 
-### Your Approach
-1. Be professional, warm, and conversational - this is the candidate's first interaction with the company
-2. Speak clearly and at a moderate pace
-3. Use active listening - acknowledge what the candidate says before moving to the next question
-4. If the candidate speaks Hindi or another regional language, feel free to switch to that language
-5. Be empathetic if the candidate mentions any concerns or challenges
+Linguistic Capabilities:
+- Primary: English
+- Secondary: Hindi (respond if candidate initiates)
+- Regional: Adapt to candidate's preferred language when possible
 
-### Interview Flow
-1. Start with the greeting and confirm it's a good time to talk
-2. If not a good time, offer to reschedule
-3. Briefly introduce the purpose of the call
-4. Ask each screening question systematically
-5. Allow the candidate to ask questions
-6. Thank them for their time and explain next steps
+Note-taking Framework:
+- Document responses to each screening question
+- Note any red flags or exceptional qualifications
+- Record candidate's availability and interest level
+- Track any follow-up items or special considerations`;
 
-### Important Notes
-- DO NOT make any hiring decisions or commitments during the call
-- DO NOT discuss specific salary numbers unless asked directly (refer to the range provided)
-- DO NOT share confidential company information beyond what's in the FAQ
-- If asked something not in the FAQ, politely say you'll have the HR team follow up with that information
-
-### Evaluation Focus
-- Listen for relevant experience and skills
-- Note communication skills and professionalism
-- Assess cultural fit based on responses
-- Document any concerns or red flags per the evaluation criteria
-- Pay attention to the candidate's enthusiasm and interest in the role
-
-Remember: Your goal is to gather information for the recruiting team while providing a positive candidate experience.`;
-
-  // Create minimal valid configuration
-  // Based on ElevenLabs API requirements, we use a simplified structure
-  const agentConfig = {
+  return {
     name: `${role.title} - ${organization.name}`,
     conversation_config: {
-      // Move first_message to root of conversation_config
-      first_message: firstMessage,
-      
-      // Minimal TTS configuration
+      first_message: `Hello! This is a screening call from ${organization.name} regarding your application for the ${role.title} position. I'm calling to learn more about your background and experience. Is this a good time to talk for about 10 to 15 minutes?`,
       tts: {
-        voice_id: "21m00Tcm4TlvDq8ikWAM" // Rachel - professional female voice
+        voice_id: "21m00Tcm4TlvDq8ikWAM" // Default to Rachel voice
       },
-      
-      // Minimal LLM configuration with correct structure
       llm: {
         provider: "openai",
-        model: "gpt-4o-mini", // Use widely supported model
+        model: "gpt-4o-mini",
         prompt: prompt,
         max_tokens: 150
       }
-    }
-  };
-
-  // Add optional platform settings if needed
-  const fullConfig = {
-    ...agentConfig,
+    },
     platform_settings: {
-      max_duration: 1800 // 30 minutes max
+      max_duration: 1800 // 30 minutes
     },
     tags: [
       `org-${organization.id}`,
       `role-${role.id}`,
       'screening-agent',
-      organization.country || 'IN'
+      'IN' // India region tag
     ]
   };
-
-  return fullConfig;
 }
 
 function extractKeywords(role: any): string[] {
