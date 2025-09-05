@@ -525,37 +525,19 @@ serve(async (req) => {
             country: 'IN'
           });
           
-          // Only send specific fields that need updating
+          // Send complete conversation_config to avoid partial update issues
           updatePayload = {
             name: agentConfig.name,
-            conversation_config: {
-              agent: {
-                prompt: agentConfig.conversation_config.agent.prompt,
-                first_message: agentConfig.conversation_config.agent.first_message
-              }
-            }
+            conversation_config: agentConfig.conversation_config
           };
           
-          console.log('Updating agent with minimal payload (name, prompt, first_message only)');
+          console.log('Updating agent with complete conversation_config');
         } else if (updates.conversation_config || updates.name) {
-          // Handle direct updates - only include specified fields
-          if (updates.name) {
-            updatePayload.name = updates.name;
-          }
-          
-          if (updates.conversation_config?.agent) {
-            updatePayload.conversation_config = {
-              agent: {}
-            };
-            
-            if (updates.conversation_config.agent.prompt !== undefined) {
-              updatePayload.conversation_config.agent.prompt = updates.conversation_config.agent.prompt;
-            }
-            
-            if (updates.conversation_config.agent.first_message !== undefined) {
-              updatePayload.conversation_config.agent.first_message = updates.conversation_config.agent.first_message;
-            }
-          }
+          // Handle direct updates - send complete conversation_config
+          updatePayload = {
+            name: updates.name || existingAgent.name,
+            conversation_config: updates.conversation_config || existingAgent.conversation_config
+          };
         }
 
         console.log('Final update payload:', JSON.stringify(updatePayload, null, 2));
