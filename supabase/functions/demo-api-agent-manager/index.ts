@@ -525,11 +525,40 @@ serve(async (req) => {
             country: 'IN'
           });
           
-          // Use the generated config as the update payload
-          updatePayload = agentConfig;
+          // Only send specific fields that need updating
+          updatePayload = {
+            name: agentConfig.name,
+            conversation_config: {
+              agent: {
+                prompt: agentConfig.conversation_config.agent.prompt,
+                first_message: agentConfig.conversation_config.agent.first_message
+              }
+            }
+          };
           
-          console.log('Updating agent with regenerated configuration:', JSON.stringify(updatePayload, null, 2));
+          console.log('Updating agent with minimal payload (name, prompt, first_message only)');
+        } else if (updates.conversation_config || updates.name) {
+          // Handle direct updates - only include specified fields
+          if (updates.name) {
+            updatePayload.name = updates.name;
+          }
+          
+          if (updates.conversation_config?.agent) {
+            updatePayload.conversation_config = {
+              agent: {}
+            };
+            
+            if (updates.conversation_config.agent.prompt !== undefined) {
+              updatePayload.conversation_config.agent.prompt = updates.conversation_config.agent.prompt;
+            }
+            
+            if (updates.conversation_config.agent.first_message !== undefined) {
+              updatePayload.conversation_config.agent.first_message = updates.conversation_config.agent.first_message;
+            }
+          }
         }
+
+        console.log('Final update payload:', JSON.stringify(updatePayload, null, 2));
 
         // Update agent in ElevenLabs
         const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
