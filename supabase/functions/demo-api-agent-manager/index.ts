@@ -498,6 +498,36 @@ serve(async (req) => {
           });
         }
 
+        // Fetch existing agent data first
+        console.log(`Fetching existing agent data for: ${agentId}`);
+        const fetchResponse = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+          method: 'GET',
+          headers: {
+            'xi-api-key': elevenLabsApiKey,
+          },
+        });
+
+        if (!fetchResponse.ok) {
+          const errorText = await fetchResponse.text();
+          console.error('Failed to fetch existing agent:', errorText);
+          return new Response(
+            JSON.stringify({ 
+              error: 'Failed to fetch existing agent', 
+              details: errorText 
+            }),
+            { status: fetchResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        const existingAgent = await fetchResponse.json();
+        console.log('Fetched existing agent:', {
+          id: existingAgent.agent_id,
+          name: existingAgent.name,
+          hasConversationConfig: !!existingAgent.conversation_config,
+          hasPrompt: !!existingAgent.conversation_config?.agent?.prompt,
+          hasFirstMessage: !!existingAgent.conversation_config?.agent?.first_message
+        });
+
         let updatePayload = updates;
         
         // If roleId is provided, regenerate the full agent configuration
@@ -533,11 +563,19 @@ serve(async (req) => {
           
           console.log('Updating agent with complete conversation_config');
         } else if (updates.conversation_config || updates.name) {
-          // Handle direct updates - send complete conversation_config
+          // Handle direct updates - merge updates with existing agent data
           updatePayload = {
             name: updates.name || existingAgent.name,
-            conversation_config: updates.conversation_config || existingAgent.conversation_config
+            conversation_config: updates.conversation_config ? {
+              ...existingAgent.conversation_config,
+              ...updates.conversation_config,
+              agent: {
+                ...existingAgent.conversation_config?.agent,
+                ...(updates.conversation_config?.agent || {})
+              }
+            } : existingAgent.conversation_config
           };
+          console.log('Merging updates with existing agent configuration');
         }
 
         console.log('Final update payload:', JSON.stringify(updatePayload, null, 2));
