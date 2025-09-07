@@ -60,9 +60,23 @@ serve(async (req) => {
         }
       }
       case 'get-signed-url': {
-        const { screenId, agentId } = await req.json();
+        const { screenId, agentId, candidateId, metadata } = await req.json();
         
         console.log('Getting signed URL for agent:', agentId, 'screen:', screenId);
+        
+        // Validate required parameters
+        if (!agentId || !screenId) {
+          console.error('Missing required parameters:', { agentId, screenId });
+          return new Response(
+            JSON.stringify({ 
+              error: 'Missing required parameters: agentId and screenId' 
+            }),
+            { 
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+            }
+          );
+        }
 
         // Get the signed URL from ElevenLabs
         const response = await fetch(
@@ -82,17 +96,26 @@ serve(async (req) => {
         }
 
         const data = await response.json();
-        console.log('Successfully got signed URL');
+        console.log('Successfully got signed URL, conversation ID:', data.conversation_id);
 
-        // Update the screen record with conversation ID
-        await supabase
-          .from('screens')
-          .update({ 
-            status: 'scheduled',
-            scheduledAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          })
-          .eq('id', screenId);
+        // Update the screen record with conversation ID from ElevenLabs
+        if (data.conversation_id) {
+          const updateResult = await supabase
+            .from('screens')
+            .update({ 
+              status: 'scheduled',
+              conversation_id: data.conversation_id,
+              scheduled_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', screenId);
+          
+          if (updateResult.error) {
+            console.error('Failed to update screen with conversation ID:', updateResult.error);
+          } else {
+            console.log('Updated screen with ElevenLabs conversation ID:', data.conversation_id);
+          }
+        }
 
         return new Response(
           JSON.stringify({ 
@@ -170,6 +193,20 @@ serve(async (req) => {
         const { screenId, phoneNumber, agentId, candidateName } = await req.json();
         
         console.log('Initiating phone call to:', phoneNumber, 'for screen:', screenId);
+        
+        // Validate required parameters
+        if (!phoneNumber || !agentId || !screenId) {
+          console.error('Missing required parameters for phone call:', { phoneNumber, agentId, screenId });
+          return new Response(
+            JSON.stringify({ 
+              error: 'Missing required parameters: phoneNumber, agentId, and screenId' 
+            }),
+            { 
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+            }
+          );
+        }
 
         // Update screen status to in_progress
         await supabase
@@ -220,14 +257,22 @@ serve(async (req) => {
         const data = await response.json();
         console.log('Phone call initiated successfully:', data);
 
-        // Store the phone conversation ID
-        await supabase
+        // Store the phone conversation ID - use conversation_id field consistently
+        const updateResult = await supabase
           .from('screens')
           .update({ 
-            session_id: data.conversation_id,
+            conversation_id: data.conversation_id,
+            status: 'in_progress',
+            started_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           })
           .eq('id', screenId);
+        
+        if (updateResult.error) {
+          console.error('Failed to update screen with phone conversation ID:', updateResult.error);
+        } else {
+          console.log('Updated screen with phone conversation ID:', data.conversation_id);
+        }
 
         return new Response(
           JSON.stringify({ 
@@ -248,8 +293,8 @@ serve(async (req) => {
         if (webhookData.type === 'call.completed') {
           const { conversation_id, duration, recording_url, transcript } = webhookData;
           
-          // Update screen with call results
-          await supabase
+          // Update screen with call results - use conversation_id field consistently
+          const updateResult = await supabase
             .from('screens')
             .update({
               status: 'completed',
@@ -259,19 +304,27 @@ serve(async (req) => {
               completed_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             })
-            .eq('session_id', conversation_id);
+            .eq('conversation_id', conversation_id);
+          
+          if (updateResult.error) {
+            console.error('Failed to update screen on call completion:', updateResult.error);
+          }
             
           console.log('Call completed, screen updated');
         } else if (webhookData.type === 'call.failed') {
           const { conversation_id, error_message } = webhookData;
           
-          await supabase
+          const updateResult = await supabase
             .from('screens')
             .update({
               status: 'failed',
               updated_at: new Date().toISOString()
             })
-            .eq('session_id', conversation_id);
+            .eq('conversation_id', conversation_id);
+          
+          if (updateResult.error) {
+            console.error('Failed to update screen on call failure:', updateResult.error);
+          }
             
           console.log('Call failed:', error_message);
         }

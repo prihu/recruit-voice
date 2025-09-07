@@ -96,27 +96,37 @@ export function useElevenLabsConversation({
       });
 
       if (error) throw error;
-      if (!data.url) throw new Error('Failed to get conversation URL');
+      if (!data.signedUrl) throw new Error('Failed to get conversation URL');
+
+      console.log('Received signed URL and conversation ID:', { 
+        hasSignedUrl: !!data.signedUrl, 
+        conversationId: data.conversationId 
+      });
 
       // Request microphone permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
       // Start the conversation with the signed URL
       const convId = await conversation.startSession({ 
-        signedUrl: data.url 
+        signedUrl: data.signedUrl 
       });
       
-      setConversationId(convId);
+      // Store both the local session ID and the ElevenLabs conversation ID
+      const elevenLabsConvId = data.conversationId || convId;
+      setConversationId(elevenLabsConvId);
+      console.log('Conversation started with ID:', elevenLabsConvId);
       
-      // Update screen status
+      // Update screen status with the ElevenLabs conversation ID
       await supabase
         .from('screens')
         .update({
           status: 'in_progress',
-          conversation_id: convId,
+          conversation_id: elevenLabsConvId,
           started_at: new Date().toISOString()
         })
         .eq('id', screenId);
+      
+      console.log('Updated screen status to in_progress with conversation ID:', elevenLabsConvId);
 
       toast({
         title: 'Voice Interview Started',
