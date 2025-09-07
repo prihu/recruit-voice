@@ -7,6 +7,7 @@ import { useElevenLabsConversation } from '@/hooks/useElevenLabsConversation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { useState } from 'react';
+import { validateIndianPhone } from '@/utils/indianPhoneValidator';
 
 interface VoiceScreeningProps {
   screenId: string;
@@ -50,13 +51,24 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
       return;
     }
 
+    // Validate phone number
+    const phoneValidation = validateIndianPhone(candidate.phone);
+    if (!phoneValidation.isValid) {
+      toast({
+        title: 'Invalid Phone Number',
+        description: phoneValidation.error || 'Please enter a valid 10-digit Indian mobile number',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsInitiatingCall(true);
     
     try {
       const { data, error } = await supabase.functions.invoke('elevenlabs-voice/initiate-phone-call', {
         body: {
           agentId: role.voice_agent_id,
-          phoneNumber: candidate.phone,
+          phoneNumber: phoneValidation.formatted,
           screenId,
           candidateId: candidate.id,
           metadata: {

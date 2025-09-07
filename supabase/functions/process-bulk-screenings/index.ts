@@ -285,7 +285,7 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
         .from('screens')
         .update({ 
           status: 'in_progress',
-          session_id: callData.conversation_id || callData.session_id,
+          conversation_id: callData.conversation_id || callData.session_id,
           started_at: new Date().toISOString(),
           attempts: screen.attempts + 1,
           updated_at: new Date().toISOString()
@@ -309,11 +309,21 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
         .eq('id', screen.id);
 
       // Update bulk operation failed count
-      await supabase.rpc('increment', {
-        table_name: 'bulk_operations',
-        column_name: 'failed_count',
-        row_id: bulkOperationId
-      });
+      const { data: bulkOp } = await supabase
+        .from('bulk_operations')
+        .select('failed_count')
+        .eq('id', bulkOperationId)
+        .single();
+      
+      if (bulkOp) {
+        await supabase
+          .from('bulk_operations')
+          .update({ 
+            failed_count: (bulkOp.failed_count || 0) + 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', bulkOperationId);
+      }
     }
   }
 

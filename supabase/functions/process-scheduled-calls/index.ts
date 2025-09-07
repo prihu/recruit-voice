@@ -162,7 +162,7 @@ serve(async (req) => {
           .update({
             status: 'in_progress',
             started_at: now.toISOString(),
-            session_id: result.conversation_id || result.id,
+            conversation_id: result.conversation_id || result.id,
             updated_at: now.toISOString()
           })
           .eq('id', screen.id);
