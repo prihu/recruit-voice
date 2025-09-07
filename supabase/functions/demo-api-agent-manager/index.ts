@@ -528,15 +528,11 @@ serve(async (req) => {
           hasFirstMessage: !!existingAgent.conversation_config?.agent?.first_message
         });
 
-        // Build a minimal, sanitized update payload to avoid ElevenLabs PATCH crashes
-        const pickDefined = (obj: Record<string, any>) =>
-          Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== null));
-
-        let desiredName: string | undefined;
-        let minimalPayload: any = {};
+        // Build update payload with ONLY prompt and first_message
+        let updatePayload: any = {};
 
         if (updates.roleId) {
-          // Regenerate prompt content from role, but send only safe subset
+          // Fetch role from database for role-based updates
           const { data: role, error: roleError } = await supabase
             .from('roles')
             .select('*')
@@ -551,6 +547,7 @@ serve(async (req) => {
             });
           }
 
+          // Generate agent config based on role
           const agentConfig = generateAgentConfig(role, {
             id: DEMO_ORG_ID,
             name: 'Demo Company',
@@ -558,95 +555,63 @@ serve(async (req) => {
             timezone: 'Asia/Kolkata',
             country: 'IN'
           });
-
-          desiredName = agentConfig.name;
-          const safeAgent = pickDefined({
-            prompt: agentConfig.conversation_config?.agent?.prompt,
-            first_message: agentConfig.conversation_config?.agent?.first_message,
-            language: agentConfig.conversation_config?.agent?.language || 'en',
-          });
-
-          minimalPayload = pickDefined({
-            name: desiredName,
-            conversation_config: Object.keys(safeAgent).length > 0 ? { agent: safeAgent } : undefined,
-          });
-
-          console.log('Updating agent with MINIMAL conversation_config (role-based)');
-        } else {
-          // Direct updates: only pass allowed agent fields + optional name
-          desiredName = updates.name ?? existingAgent.name;
-
-          const safeAgent = pickDefined({
-            prompt: updates.conversation_config?.agent?.prompt ?? existingAgent.conversation_config?.agent?.prompt,
-            first_message: updates.conversation_config?.agent?.first_message ?? existingAgent.conversation_config?.agent?.first_message,
-            language: updates.conversation_config?.agent?.language ?? existingAgent.conversation_config?.agent?.language ?? 'en',
-          });
-
-          minimalPayload = pickDefined({
-            name: desiredName,
-            conversation_config: Object.keys(safeAgent).length > 0 ? { agent: safeAgent } : undefined,
-          });
-          console.log('Updating agent with MINIMAL conversation_config (direct update)');
+          
+          console.log('Updating agent with prompt and first_message from role configuration');
+          
+          // Build update payload - only prompt and first_message
+          updatePayload = {
+            conversation_config: {
+              agent: {
+                prompt: agentConfig.conversation_config.agent.prompt,
+                first_message: agentConfig.conversation_config.agent.first_message
+              }
+            }
+          };
+        } else if (updates.conversation_config?.agent) {
+          // Direct updates - only pass prompt and first_message if provided
+          console.log('Updating agent with direct prompt and first_message');
+          
+          const agentUpdate: any = {};
+          if (updates.conversation_config.agent.prompt !== undefined) {
+            agentUpdate.prompt = updates.conversation_config.agent.prompt;
+          }
+          if (updates.conversation_config.agent.first_message !== undefined) {
+            agentUpdate.first_message = updates.conversation_config.agent.first_message;
+          }
+          
+          if (Object.keys(agentUpdate).length > 0) {
+            updatePayload = {
+              conversation_config: {
+                agent: agentUpdate
+              }
+            };
+          }
         }
 
-        console.log('Final minimal update payload:', JSON.stringify(minimalPayload, null, 2));
+        console.log('Update payload:', JSON.stringify(updatePayload, null, 2));
 
-        // First attempt: minimal safe PATCH
-        let response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+        // Single PATCH attempt - no fallback
+        const updateUrl = `https://api.elevenlabs.io/v1/convai/agents/${agentId}`;
+        const response = await fetch(updateUrl, {
           method: 'PATCH',
           headers: {
             'xi-api-key': elevenLabsApiKey,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(minimalPayload),
+          body: JSON.stringify(updatePayload),
         });
 
         if (!response.ok) {
           const errorText = await response.text();
-          let errorMessage = 'Failed to update ElevenLabs agent';
-          let errorDetails: any = errorText;
-
+          let errorData;
           try {
-            const errorJson = JSON.parse(errorText);
-            console.error('ElevenLabs update error JSON:', errorJson);
-            errorMessage = errorJson.message || errorMessage;
-            errorDetails = errorJson;
-          } catch (_) {
-            // non-JSON error
+            errorData = JSON.parse(errorText);
+          } catch {
+            errorData = { message: errorText };
           }
 
-          // Fallback: try updating name only (some PATCHes crash on nested fields)
-          if ((response.status >= 500 || response.status === 422) && desiredName) {
-            const fallbackPayload = { name: desiredName };
-            console.warn('Primary PATCH failed, attempting fallback name-only PATCH:', fallbackPayload);
-            response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
-              method: 'PATCH',
-              headers: {
-                'xi-api-key': elevenLabsApiKey,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(fallbackPayload),
-            });
-
-            if (!response.ok) {
-              const fbText = await response.text();
-              return new Response(JSON.stringify({ 
-                error: errorMessage,
-                details: { primary: errorDetails, fallback: fbText }
-              }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                status: response.status || 500,
-              });
-            }
-          } else {
-            return new Response(JSON.stringify({ 
-              error: errorMessage,
-              details: errorDetails 
-            }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              status: response.status || 500,
-            });
-          }
+          console.error('Update agent error:', errorData);
+          throw new Error(`Failed to update agent: ${errorData.message || errorText}`);
         }
 
         const updatedAgent = await response.json();
