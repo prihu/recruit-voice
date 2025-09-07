@@ -559,10 +559,13 @@ serve(async (req) => {
           console.log('Updating agent with prompt and first_message from role configuration');
           
           // Build update payload - only prompt and first_message
+          // The prompt needs to be wrapped in an object as per ElevenLabs API schema
           updatePayload = {
             conversation_config: {
               agent: {
-                prompt: agentConfig.conversation_config.agent.prompt,
+                prompt: {
+                  prompt: agentConfig.conversation_config.agent.prompt
+                },
                 first_message: agentConfig.conversation_config.agent.first_message
               }
             }
@@ -573,7 +576,10 @@ serve(async (req) => {
           
           const agentUpdate: any = {};
           if (updates.conversation_config.agent.prompt !== undefined) {
-            agentUpdate.prompt = updates.conversation_config.agent.prompt;
+            // Wrap prompt in an object as per ElevenLabs API schema
+            agentUpdate.prompt = {
+              prompt: updates.conversation_config.agent.prompt
+            };
           }
           if (updates.conversation_config.agent.first_message !== undefined) {
             agentUpdate.first_message = updates.conversation_config.agent.first_message;
