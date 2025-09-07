@@ -528,10 +528,15 @@ serve(async (req) => {
           hasFirstMessage: !!existingAgent.conversation_config?.agent?.first_message
         });
 
-        let updatePayload = updates;
-        
-        // If roleId is provided, regenerate the full agent configuration
+        // Build a minimal, sanitized update payload to avoid ElevenLabs PATCH crashes
+        const pickDefined = (obj: Record<string, any>) =>
+          Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== null));
+
+        let desiredName: string | undefined;
+        let minimalPayload: any = {};
+
         if (updates.roleId) {
+          // Regenerate prompt content from role, but send only safe subset
           const { data: role, error: roleError } = await supabase
             .from('roles')
             .select('*')
@@ -546,7 +551,6 @@ serve(async (req) => {
             });
           }
 
-          // Generate updated configuration
           const agentConfig = generateAgentConfig(role, {
             id: DEMO_ORG_ID,
             name: 'Demo Company',
@@ -554,78 +558,95 @@ serve(async (req) => {
             timezone: 'Asia/Kolkata',
             country: 'IN'
           });
-          
-          // Send complete conversation_config to avoid partial update issues
-          updatePayload = {
-            name: agentConfig.name,
-            conversation_config: agentConfig.conversation_config
-          };
-          
-          console.log('Updating agent with complete conversation_config');
-        } else if (updates.conversation_config || updates.name) {
-          // Handle direct updates - merge updates with existing agent data
-          updatePayload = {
-            name: updates.name || existingAgent.name,
-            conversation_config: updates.conversation_config ? {
-              ...existingAgent.conversation_config,
-              ...updates.conversation_config,
-              agent: {
-                ...existingAgent.conversation_config?.agent,
-                ...(updates.conversation_config?.agent || {})
-              }
-            } : existingAgent.conversation_config
-          };
-          console.log('Merging updates with existing agent configuration');
+
+          desiredName = agentConfig.name;
+          const safeAgent = pickDefined({
+            prompt: agentConfig.conversation_config?.agent?.prompt,
+            first_message: agentConfig.conversation_config?.agent?.first_message,
+            language: agentConfig.conversation_config?.agent?.language || 'en',
+          });
+
+          minimalPayload = pickDefined({
+            name: desiredName,
+            conversation_config: Object.keys(safeAgent).length > 0 ? { agent: safeAgent } : undefined,
+          });
+
+          console.log('Updating agent with MINIMAL conversation_config (role-based)');
+        } else {
+          // Direct updates: only pass allowed agent fields + optional name
+          desiredName = updates.name ?? existingAgent.name;
+
+          const safeAgent = pickDefined({
+            prompt: updates.conversation_config?.agent?.prompt ?? existingAgent.conversation_config?.agent?.prompt,
+            first_message: updates.conversation_config?.agent?.first_message ?? existingAgent.conversation_config?.agent?.first_message,
+            language: updates.conversation_config?.agent?.language ?? existingAgent.conversation_config?.agent?.language ?? 'en',
+          });
+
+          minimalPayload = pickDefined({
+            name: desiredName,
+            conversation_config: Object.keys(safeAgent).length > 0 ? { agent: safeAgent } : undefined,
+          });
+          console.log('Updating agent with MINIMAL conversation_config (direct update)');
         }
 
-        console.log('Final update payload:', JSON.stringify(updatePayload, null, 2));
+        console.log('Final minimal update payload:', JSON.stringify(minimalPayload, null, 2));
 
-        // Update agent in ElevenLabs
-        const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+        // First attempt: minimal safe PATCH
+        let response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
           method: 'PATCH',
           headers: {
             'xi-api-key': elevenLabsApiKey,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(updatePayload),
+          body: JSON.stringify(minimalPayload),
         });
 
         if (!response.ok) {
           const errorText = await response.text();
           let errorMessage = 'Failed to update ElevenLabs agent';
-          let errorDetails = errorText;
-          
+          let errorDetails: any = errorText;
+
           try {
             const errorJson = JSON.parse(errorText);
             console.error('ElevenLabs update error JSON:', errorJson);
-            
-            // Parse error similar to create action
-            if (errorJson.detail) {
-              if (Array.isArray(errorJson.detail)) {
-                const validationErrors = errorJson.detail.map((err: any) => {
-                  const field = err.loc?.join('.') || 'unknown field';
-                  const msg = err.msg || 'validation error';
-                  return `${field}: ${msg}`;
-                }).join('; ');
-                errorMessage = `Update validation failed: ${validationErrors}`;
-              } else {
-                errorMessage = errorJson.detail.message || errorJson.detail;
-              }
-            } else if (errorJson.message) {
-              errorMessage = errorJson.message;
-            }
+            errorMessage = errorJson.message || errorMessage;
             errorDetails = errorJson;
-          } catch (parseError) {
-            console.error('Failed to parse update error response:', parseError);
+          } catch (_) {
+            // non-JSON error
           }
-          
-          return new Response(JSON.stringify({ 
-            error: errorMessage,
-            details: errorDetails 
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: response.status || 500,
-          });
+
+          // Fallback: try updating name only (some PATCHes crash on nested fields)
+          if ((response.status >= 500 || response.status === 422) && desiredName) {
+            const fallbackPayload = { name: desiredName };
+            console.warn('Primary PATCH failed, attempting fallback name-only PATCH:', fallbackPayload);
+            response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+              method: 'PATCH',
+              headers: {
+                'xi-api-key': elevenLabsApiKey,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(fallbackPayload),
+            });
+
+            if (!response.ok) {
+              const fbText = await response.text();
+              return new Response(JSON.stringify({ 
+                error: errorMessage,
+                details: { primary: errorDetails, fallback: fbText }
+              }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: response.status || 500,
+              });
+            }
+          } else {
+            return new Response(JSON.stringify({ 
+              error: errorMessage,
+              details: errorDetails 
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              status: response.status || 500,
+            });
+          }
         }
 
         const updatedAgent = await response.json();
