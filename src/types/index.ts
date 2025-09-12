@@ -18,6 +18,9 @@ export interface Role {
   createdAt: Date;
   updatedAt: Date;
   screeningsCount?: number;
+  voice_agent_id?: string;
+  agent_sync_status?: string;
+  voice_enabled?: boolean;
 }
 
 export interface ScreeningQuestion {

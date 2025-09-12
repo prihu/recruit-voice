@@ -102,7 +102,10 @@ export default function ScreenDetail() {
             },
         status: roleData.status as Role['status'],
         createdAt: new Date(roleData.created_at),
-        updatedAt: new Date(roleData.updated_at)
+        updatedAt: new Date(roleData.updated_at),
+        voice_agent_id: roleData.voice_agent_id,
+        agent_sync_status: roleData.agent_sync_status,
+        voice_enabled: roleData.voice_enabled
       };
 
       const transformedCandidate: Candidate = {

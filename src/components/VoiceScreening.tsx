@@ -2,12 +2,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Mic, MicOff, Phone, PhoneOff, Volume2, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Phone, PhoneOff, Volume2, Loader2, AlertCircle, Settings } from 'lucide-react';
 import { useElevenLabsConversation } from '@/hooks/useElevenLabsConversation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { useState } from 'react';
 import { validateIndianPhone } from '@/utils/indianPhoneValidator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Link } from 'react-router-dom';
+import { Badge } from '@/components/ui/badge';
 
 interface VoiceScreeningProps {
   screenId: string;
@@ -108,16 +111,33 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
   };
 
   const progress = totalQuestions > 0 ? (currentQuestion / totalQuestions) * 100 : 0;
+  const hasVoiceAgent = role.voice_agent_id && role.voice_enabled !== false;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Voice Screening Interview</CardTitle>
         <CardDescription>
-          {isActive ? `Question ${currentQuestion + 1} of ${totalQuestions}` : 'Click start to begin the interview'}
+          {isActive ? `Question ${currentQuestion + 1} of ${totalQuestions}` : 
+           hasVoiceAgent ? 'AI-powered screening interview' : 'Voice agent configuration required'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Voice Agent Configuration Warning */}
+        {!hasVoiceAgent && (
+          <Alert className="border-warning">
+            <AlertCircle className="h-4 w-4 text-warning" />
+            <AlertDescription className="space-y-2">
+              <p>Voice agent is not configured for this role. Configure it to enable voice interviews.</p>
+              <Link to={`/roles/${role.id}`}>
+                <Button variant="outline" size="sm" className="mt-2">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Configure Voice Agent
+                </Button>
+              </Link>
+            </AlertDescription>
+          </Alert>
+        )}
         {/* Progress Bar */}
         {isActive && (
           <div className="space-y-2">
@@ -131,15 +151,14 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
 
         {/* Status Indicators */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${status === 'connected' ? 'bg-green-500' : 'bg-gray-400'}`} />
-            <span className="text-sm">{status === 'connected' ? 'Connected' : 'Disconnected'}</span>
-          </div>
+          <Badge variant={status === 'connected' ? 'default' : 'secondary'}>
+            {status === 'connected' ? 'Connected' : isLoading ? 'Connecting...' : 'Ready'}
+          </Badge>
           {isSpeaking && (
-            <div className="flex items-center gap-2">
-              <Volume2 className="h-4 w-4 animate-pulse text-primary" />
-              <span className="text-sm">AI Speaking</span>
-            </div>
+            <Badge variant="outline" className="animate-pulse">
+              <Volume2 className="h-3 w-3 mr-1" />
+              AI Speaking
+            </Badge>
           )}
         </div>
 
@@ -160,7 +179,11 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
         <div className="flex gap-2">
           {!isActive ? (
             <>
-              <Button onClick={startScreening} disabled={isLoading} className="flex-1">
+              <Button 
+                onClick={startScreening} 
+                disabled={isLoading || !hasVoiceAgent} 
+                className="flex-1"
+              >
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -169,13 +192,13 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
                 ) : (
                   <>
                     <Mic className="mr-2 h-4 w-4" />
-                    Web Interview
+                    Start Web Interview
                   </>
                 )}
               </Button>
               <Button 
                 onClick={initiatePhoneCall} 
-                disabled={isInitiatingCall || !candidate.phone}
+                disabled={isInitiatingCall || !candidate.phone || !hasVoiceAgent}
                 variant="outline"
                 className="flex-1"
               >
@@ -187,7 +210,7 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
                 ) : (
                   <>
                     <Phone className="mr-2 h-4 w-4" />
-                    Phone Call
+                    Initiate Phone Call
                   </>
                 )}
               </Button>
