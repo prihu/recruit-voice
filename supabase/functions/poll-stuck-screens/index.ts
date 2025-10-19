@@ -1,0 +1,219 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.56.0';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+Deno.serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const elevenLabsApiKey = Deno.env.get('ELEVENLABS_API_KEY');
+
+    if (!elevenLabsApiKey) {
+      console.error('ELEVENLABS_API_KEY not configured');
+      return new Response(
+        JSON.stringify({ error: 'API key not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    console.log('[POLL] Checking for stuck screens...');
+
+    // Find screens potentially stuck in 'in_progress' for more than 5 minutes
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    
+    const { data: stuckScreens, error: fetchError } = await supabase
+      .from('screens')
+      .select('id, session_id, bulk_operation_id, organization_id')
+      .eq('status', 'in_progress')
+      .not('session_id', 'is', null)
+      .lt('started_at', fiveMinutesAgo)
+      .limit(10); // Process max 10 per run to avoid rate limits
+
+    if (fetchError) {
+      console.error('[POLL] Error fetching stuck screens:', fetchError);
+      throw fetchError;
+    }
+
+    if (!stuckScreens || stuckScreens.length === 0) {
+      console.log('[POLL] No stuck screens found');
+      return new Response(
+        JSON.stringify({ message: 'No stuck screens found', processed: 0 }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`[POLL] Found ${stuckScreens.length} potentially stuck screens`);
+
+    const results = await Promise.allSettled(
+      stuckScreens.map(async (screen) => {
+        try {
+          console.log(`[POLL] Fetching conversation for session: ${screen.session_id}`);
+
+          // Fetch conversation data from ElevenLabs API
+          const response = await fetch(
+            `https://api.elevenlabs.io/v1/convai/conversations/${screen.session_id}`,
+            {
+              headers: {
+                'xi-api-key': elevenLabsApiKey,
+              },
+            }
+          );
+
+          if (!response.ok) {
+            if (response.status === 404) {
+              console.log(`[POLL] Conversation not found for ${screen.session_id} - marking as failed`);
+              // Mark as failed - conversation doesn't exist
+              await supabase
+                .from('screens')
+                .update({
+                  status: 'failed',
+                  completed_at: new Date().toISOString(),
+                  ai_summary: 'Conversation not found - may have been deleted or never started',
+                })
+                .eq('id', screen.id);
+
+              if (screen.bulk_operation_id) {
+                await supabase
+                  .from('bulk_operations')
+                  .update({ failed_count: supabase.raw('failed_count + 1') })
+                  .eq('id', screen.bulk_operation_id);
+              }
+
+              return { screenId: screen.id, status: 'marked_failed' };
+            }
+
+            if (response.status === 429) {
+              console.warn(`[POLL] Rate limited - will retry later`);
+              return { screenId: screen.id, status: 'rate_limited' };
+            }
+
+            throw new Error(`API error: ${response.status}`);
+          }
+
+          const conversationData = await response.json();
+
+          // Check if conversation is still active
+          const conversationStatus = conversationData.status || 'unknown';
+          
+          if (conversationStatus === 'active' || conversationStatus === 'ongoing') {
+            console.log(`[POLL] Conversation ${screen.session_id} is still active - skipping`);
+            return { screenId: screen.id, status: 'still_active' };
+          }
+
+          console.log(`[POLL] Conversation ${screen.session_id} has ended - updating screen`);
+
+          // Extract data from conversation
+          const transcript = conversationData.transcript || [];
+          const analysis = conversationData.analysis || {};
+          const metadata = conversationData.metadata || {};
+
+          // Calculate score from evaluation criteria
+          const evaluationResults = analysis.evaluation_criteria_results || [];
+          const passedCriteria = evaluationResults.filter((r: any) => r.result === 'pass').length;
+          const totalCriteria = evaluationResults.length;
+          const score = totalCriteria > 0 ? (passedCriteria / totalCriteria) * 100 : 0;
+
+          // Determine outcome
+          const callSuccessful = analysis.call_successful !== false;
+          const outcome = callSuccessful && score >= 60 ? 'pass' : 'fail';
+
+          // Extract reasons for failure
+          const reasons = evaluationResults
+            .filter((r: any) => r.result === 'fail')
+            .map((r: any) => r.criteria || 'Unknown criteria failed');
+
+          // Prepare update data
+          const updateData = {
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            transcript: transcript.length > 0 ? transcript : null,
+            ai_summary: analysis.transcript_summary || 'No summary available',
+            answers: evaluationResults.length > 0 ? evaluationResults : null,
+            score: score,
+            outcome: outcome,
+            reasons: reasons.length > 0 ? reasons : null,
+            duration_seconds: metadata.duration_seconds || null,
+            recording_url: metadata.recording_url || null,
+          };
+
+          // Update the screen
+          const { error: updateError } = await supabase
+            .from('screens')
+            .update(updateData)
+            .eq('id', screen.id);
+
+          if (updateError) {
+            console.error(`[POLL] Error updating screen ${screen.id}:`, updateError);
+            throw updateError;
+          }
+
+          // Update bulk operation count
+          if (screen.bulk_operation_id) {
+            const columnToIncrement = outcome === 'pass' ? 'completed_count' : 'failed_count';
+            await supabase
+              .from('bulk_operations')
+              .update({ [columnToIncrement]: supabase.raw(`${columnToIncrement} + 1`) })
+              .eq('id', screen.bulk_operation_id);
+          }
+
+          console.log(`[POLL] Successfully updated screen ${screen.id}`);
+          return { screenId: screen.id, status: 'updated' };
+
+        } catch (error) {
+          console.error(`[POLL] Error processing screen ${screen.id}:`, error);
+          return { screenId: screen.id, status: 'error', error: error.message };
+        }
+      })
+    );
+
+    // Summarize results
+    const summary = {
+      total: stuckScreens.length,
+      updated: 0,
+      failed: 0,
+      still_active: 0,
+      rate_limited: 0,
+      errors: 0,
+    };
+
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        const value = result.value as any;
+        if (value.status === 'updated') summary.updated++;
+        else if (value.status === 'marked_failed') summary.failed++;
+        else if (value.status === 'still_active') summary.still_active++;
+        else if (value.status === 'rate_limited') summary.rate_limited++;
+        else if (value.status === 'error') summary.errors++;
+      } else {
+        summary.errors++;
+      }
+    });
+
+    console.log('[POLL] Processing complete:', summary);
+
+    return new Response(
+      JSON.stringify({
+        message: 'Polling complete',
+        ...summary,
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('[POLL] Error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});

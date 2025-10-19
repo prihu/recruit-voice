@@ -88,3 +88,12 @@ verify_jwt = false
 
 [functions.demo-api-bulk-screenings]
 verify_jwt = false
+
+[functions.elevenlabs-webhook]
+verify_jwt = false
+
+[functions.recover-stuck-screens]
+verify_jwt = true
+
+[functions.poll-stuck-screens]
+verify_jwt = false
