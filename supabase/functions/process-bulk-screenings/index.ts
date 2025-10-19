@@ -164,10 +164,16 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
           })
           .eq('id', screen.id);
         
+        const { data: currentOp } = await supabase
+          .from('bulk_operations')
+          .select('failed_count')
+          .eq('id', bulkOperationId)
+          .single();
+
         await supabase
           .from('bulk_operations')
           .update({ 
-            failed_count: supabase.sql`failed_count + 1`,
+            failed_count: (currentOp?.failed_count || 0) + 1,
             updated_at: new Date().toISOString()
           })
           .eq('id', bulkOperationId);
@@ -187,10 +193,16 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
           })
           .eq('id', screen.id);
         
+        const { data: currentOp2 } = await supabase
+          .from('bulk_operations')
+          .select('failed_count')
+          .eq('id', bulkOperationId)
+          .single();
+
         await supabase
           .from('bulk_operations')
           .update({ 
-            failed_count: supabase.sql`failed_count + 1`,
+            failed_count: (currentOp2?.failed_count || 0) + 1,
             updated_at: new Date().toISOString()
           })
           .eq('id', bulkOperationId);
@@ -198,12 +210,21 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
         continue;
       }
 
+      // Validate language code
+      const validLanguages = ['en', 'zh', 'es', 'hi', 'pt', 'fr', 'de', 'ja', 'ar', 'ko', 'id', 'it', 'nl', 'tr', 'pl', 'ru', 'sv', 'tl', 'ms', 'ro', 'uk', 'el', 'cs', 'da', 'fi', 'bg', 'hr', 'sk', 'ta', 'vi', 'no', 'hu', 'pt-br', 'fil'];
+      const candidateLanguage = candidate.language || 'en';
+
+      if (!validLanguages.includes(candidateLanguage)) {
+        console.warn(`Invalid language code "${candidateLanguage}" for candidate ${candidate.name}, using "en" as fallback`);
+      }
+
       // Initiate call via ElevenLabs Twilio
       console.log('Initiating Twilio call:', {
         agent_id: role.voice_agent_id,
         agent_phone_number_id: twilioConfig.agent_phone_number_id,
         to_number: candidate.phone,
-        candidate: candidate.name
+        candidate: candidate.name,
+        language: candidateLanguage
       });
       
       const response = await fetch('https://api.elevenlabs.io/v1/convai/twilio/outbound-call', {
@@ -220,7 +241,7 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
             conversation_config_override: {
               agent: {
                 first_message: `Hello ${candidate.name}, this is an automated screening call for the ${role.title} position at ${role.location}. Are you available to answer a few questions?`,
-                language: candidate.preferred_language || 'en',
+                language: candidateLanguage,
               }
             },
             dynamic_variables: {
@@ -251,10 +272,16 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
           })
           .eq('id', screen.id);
         
+        const { data: currentOp3 } = await supabase
+          .from('bulk_operations')
+          .select('failed_count')
+          .eq('id', bulkOperationId)
+          .single();
+
         await supabase
           .from('bulk_operations')
           .update({ 
-            failed_count: supabase.sql`failed_count + 1`,
+            failed_count: (currentOp3?.failed_count || 0) + 1,
             updated_at: new Date().toISOString()
           })
           .eq('id', bulkOperationId);
@@ -287,10 +314,16 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
           })
           .eq('id', screen.id);
         
+        const { data: currentOp4 } = await supabase
+          .from('bulk_operations')
+          .select('failed_count')
+          .eq('id', bulkOperationId)
+          .single();
+
         await supabase
           .from('bulk_operations')
           .update({ 
-            failed_count: supabase.sql`failed_count + 1`,
+            failed_count: (currentOp4?.failed_count || 0) + 1,
             updated_at: new Date().toISOString()
           })
           .eq('id', bulkOperationId);
