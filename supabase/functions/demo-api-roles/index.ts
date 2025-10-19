@@ -72,6 +72,44 @@ serve(async (req) => {
     // Ensure demo setup on every request
     const demoUserId = await ensureDemoSetup(supabase);
 
+    // Handle organization config endpoints
+    if (url.pathname.endsWith('/organization-config')) {
+      if (req.method === 'GET') {
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('twilio_config')
+          .eq('id', DEMO_ORG_ID)
+          .single();
+
+        return new Response(
+          JSON.stringify(org?.twilio_config || {}),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (req.method === 'PUT') {
+        const { twilio_config } = await req.json();
+
+        const { error } = await supabase
+          .from('organizations')
+          .update({ twilio_config })
+          .eq('id', DEMO_ORG_ID);
+
+        if (error) {
+          console.error('Error updating organization config:', error);
+          return new Response(
+            JSON.stringify({ error: error.message }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ success: true, twilio_config }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // Handle different HTTP methods
     switch (req.method) {
       case 'GET': {

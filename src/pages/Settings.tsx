@@ -9,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { TestTube, Check, X, Loader2, AlertCircle, Key, Phone } from 'lucide-react';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
-import { supabase } from '@/integrations/supabase/client';
 
 export default function Settings() {
   const demoAPI = useDemoAPI();
@@ -18,61 +17,28 @@ export default function Settings() {
   const [agentPhoneNumberId, setAgentPhoneNumberId] = useState('');
   const [isSavingPhone, setIsSavingPhone] = useState(false);
 
-  // Load existing Twilio config on mount
   useEffect(() => {
     const loadTwilioConfig = async () => {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user.user) return;
-
-      const { data: member } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', user.user.id)
-        .single();
-
-      if (!member) return;
-
-      const { data: org } = await supabase
-        .from('organizations')
-        .select('twilio_config')
-        .eq('id', member.organization_id)
-        .single();
-
-      const config = org?.twilio_config as { agent_phone_number_id?: string } | null;
-      if (config?.agent_phone_number_id) {
-        setAgentPhoneNumberId(config.agent_phone_number_id);
+      try {
+        const config = await demoAPI.getOrganizationConfig();
+        if (config.agent_phone_number_id) {
+          setAgentPhoneNumberId(config.agent_phone_number_id);
+        }
+      } catch (error) {
+        console.error('Error loading Twilio config:', error);
       }
     };
     
     loadTwilioConfig();
   }, []);
 
-  // Save Twilio configuration
   const saveTwilioConfig = async () => {
     setIsSavingPhone(true);
     
     try {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user.user) throw new Error('Not authenticated');
-
-      const { data: member } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', user.user.id)
-        .single();
-
-      if (!member) throw new Error('Organization not found');
-
-      const { error } = await supabase
-        .from('organizations')
-        .update({
-          twilio_config: {
-            agent_phone_number_id: agentPhoneNumberId
-          }
-        })
-        .eq('id', member.organization_id);
-
-      if (error) throw error;
+      await demoAPI.updateOrganizationConfig({
+        agent_phone_number_id: agentPhoneNumberId
+      });
 
       toast({
         title: "✅ Configuration Saved",

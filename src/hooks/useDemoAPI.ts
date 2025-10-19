@@ -323,6 +323,59 @@ export function useDemoAPI() {
     return data;
   };
 
+  const updateOrganizationConfig = async (config: { agent_phone_number_id?: string }) => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.roles}/organization-config`, {
+        method: 'PUT',
+        body: JSON.stringify({ twilio_config: config }),
+      });
+    }
+    
+    const { data: user } = await supabase.auth.getUser();
+    if (!user.user) throw new Error('Not authenticated');
+
+    const { data: member } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.user.id)
+      .single();
+
+    if (!member) throw new Error('Organization not found');
+
+    const { error } = await supabase
+      .from('organizations')
+      .update({ twilio_config: config })
+      .eq('id', member.organization_id);
+
+    if (error) throw error;
+    return { success: true };
+  };
+
+  const getOrganizationConfig = async () => {
+    if (DEMO_MODE) {
+      return fetchDemoAPI(`${DEMO_ENDPOINTS.roles}/organization-config`);
+    }
+    
+    const { data: user } = await supabase.auth.getUser();
+    if (!user.user) throw new Error('Not authenticated');
+
+    const { data: member } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', user.user.id)
+      .single();
+
+    if (!member) throw new Error('Organization not found');
+
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('twilio_config')
+      .eq('id', member.organization_id)
+      .single();
+
+    return org?.twilio_config || {};
+  };
+
   return {
     // Role operations
     getRoles,
@@ -359,6 +412,10 @@ export function useDemoAPI() {
 
     // Connection testing
     testConnection,
+
+    // Organization config
+    updateOrganizationConfig,
+    getOrganizationConfig,
 
     // Constants
     DEMO_ORG_ID,
