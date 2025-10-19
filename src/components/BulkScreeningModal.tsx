@@ -171,7 +171,7 @@ export function BulkScreeningModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh]">
+      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col gap-0">
         <DialogHeader>
           <DialogTitle>Bulk Screening</DialogTitle>
           <DialogDescription>
@@ -179,179 +179,183 @@ export function BulkScreeningModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
-          {/* Role Selection */}
-          <div className="space-y-2">
-            <Label htmlFor="role">Select Role</Label>
-            <Select value={selectedRole} onValueChange={setSelectedRole}>
-              <SelectTrigger id="role">
-                <SelectValue placeholder="Choose a role..." />
-              </SelectTrigger>
-              <SelectContent>
-                {roles.map(role => (
-                  <SelectItem key={role.id} value={role.id}>
-                    <div>
-                      <div className="font-medium">{role.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {role.location} • {role.questions?.length || 0} questions
-                      </div>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Candidate Selection */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Select Candidates ({selectedCandidates.length} selected)</Label>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleSelectAll}
-              >
-                {selectedCandidates.length === filteredCandidates.length ? 'Deselect All' : 'Select All'}
-              </Button>
-            </div>
-            
+        <ScrollArea className="flex-1 px-1">
+          <div className="space-y-6 py-4 pr-4">
+            {/* Role Selection */}
             <div className="space-y-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search candidates..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
+              <Label htmlFor="role">Select Role</Label>
+              <Select value={selectedRole} onValueChange={setSelectedRole}>
+                <SelectTrigger id="role" className="w-full">
+                  <SelectValue placeholder="Choose a role..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map(role => (
+                    <SelectItem key={role.id} value={role.id}>
+                      <div className="max-w-md">
+                        <div className="font-medium truncate">{role.title}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {role.location} • {role.questions?.length || 0} questions
+                        </div>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Candidate Selection */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Select Candidates ({selectedCandidates.length} selected)</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSelectAll}
+                >
+                  {selectedCandidates.length === filteredCandidates.length ? 'Deselect All' : 'Select All'}
+                </Button>
               </div>
               
-              <ScrollArea className="h-48 border rounded-lg p-3">
-                <div className="space-y-2">
-                  {filteredCandidates.map(candidate => (
-                    <div key={candidate.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={candidate.id}
-                        checked={selectedCandidates.includes(candidate.id)}
-                        onCheckedChange={() => handleToggleCandidate(candidate.id)}
-                      />
-                      <Label
-                        htmlFor={candidate.id}
-                        className="flex-1 cursor-pointer font-normal"
-                      >
-                        <div>
-                          <div className="font-medium">{candidate.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {candidate.email} • {candidate.phone}
-                          </div>
-                        </div>
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </div>
-          </div>
-
-          {/* Scheduling Options */}
-          <div className="space-y-2">
-            <Label>Scheduling</Label>
-            <RadioGroup value={schedulingType} onValueChange={(v: any) => setSchedulingType(v)}>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="immediate" id="immediate" />
-                <Label htmlFor="immediate" className="font-normal">
-                  Start immediately
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="scheduled" id="scheduled" />
-                <Label htmlFor="scheduled" className="font-normal">
-                  Schedule for later
-                </Label>
-              </div>
-            </RadioGroup>
-            
-            {schedulingType === 'scheduled' && (
-              <Input
-                type="datetime-local"
-                value={scheduledTime}
-                onChange={(e) => setScheduledTime(e.target.value)}
-                className="mt-2"
-              />
-            )}
-          </div>
-
-          {/* Batch Size */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Concurrent Calls</Label>
-              <span className="text-sm text-muted-foreground">{batchSize[0]} calls</span>
-            </div>
-            <Slider
-              value={batchSize}
-              onValueChange={setBatchSize}
-              min={1}
-              max={20}
-              step={1}
-              className="w-full"
-            />
-            <p className="text-xs text-muted-foreground">
-              Higher values process faster but may impact call quality
-            </p>
-          </div>
-
-          {/* Cost & Time Estimates */}
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <DollarSign className="h-3 w-3" />
-                    Estimated Cost:
-                  </span>
-                  <Badge variant="secondary">${estimatedCost.toFixed(2)}</Badge>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search candidates..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Clock className="h-3 w-3" />
-                    Estimated Duration:
-                  </span>
-                  <Badge variant="secondary">{estimatedDuration} minutes</Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Users className="h-3 w-3" />
-                    Total Candidates:
-                  </span>
-                  <Badge variant="secondary">{selectedCandidates.length}</Badge>
-                </div>
+                
+                <ScrollArea className="h-48 border rounded-lg p-3">
+                  <div className="space-y-2">
+                    {filteredCandidates.map(candidate => (
+                      <div key={candidate.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={candidate.id}
+                          checked={selectedCandidates.includes(candidate.id)}
+                          onCheckedChange={() => handleToggleCandidate(candidate.id)}
+                        />
+                        <Label
+                          htmlFor={candidate.id}
+                          className="flex-1 cursor-pointer font-normal"
+                        >
+                          <div>
+                            <div className="font-medium">{candidate.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {candidate.email} • {candidate.phone}
+                            </div>
+                          </div>
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
               </div>
-            </AlertDescription>
-          </Alert>
-        </div>
+            </div>
 
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleStartScreening}
-            disabled={isLoading || !selectedRole || selectedCandidates.length === 0}
-            className="bg-gradient-primary border-0"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Starting...
-              </>
-            ) : (
-              <>
-                <Phone className="w-4 h-4 mr-2" />
-                Start Screening
-              </>
-            )}
-          </Button>
+            {/* Scheduling Options */}
+            <div className="space-y-2">
+              <Label>Scheduling</Label>
+              <RadioGroup value={schedulingType} onValueChange={(v: any) => setSchedulingType(v)}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="immediate" id="immediate" />
+                  <Label htmlFor="immediate" className="font-normal">
+                    Start immediately
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="scheduled" id="scheduled" />
+                  <Label htmlFor="scheduled" className="font-normal">
+                    Schedule for later
+                  </Label>
+                </div>
+              </RadioGroup>
+              
+              {schedulingType === 'scheduled' && (
+                <Input
+                  type="datetime-local"
+                  value={scheduledTime}
+                  onChange={(e) => setScheduledTime(e.target.value)}
+                  className="mt-2"
+                />
+              )}
+            </div>
+
+            {/* Batch Size */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Concurrent Calls</Label>
+                <span className="text-sm text-muted-foreground">{batchSize[0]} calls</span>
+              </div>
+              <Slider
+                value={batchSize}
+                onValueChange={setBatchSize}
+                min={1}
+                max={20}
+                step={1}
+                className="w-full"
+              />
+              <p className="text-xs text-muted-foreground">
+                Higher values process faster but may impact call quality
+              </p>
+            </div>
+
+            {/* Cost & Time Estimates */}
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <DollarSign className="h-3 w-3" />
+                      Estimated Cost:
+                    </span>
+                    <Badge variant="secondary">${estimatedCost.toFixed(2)}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Clock className="h-3 w-3" />
+                      Estimated Duration:
+                    </span>
+                    <Badge variant="secondary">{estimatedDuration} minutes</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Users className="h-3 w-3" />
+                      Total Candidates:
+                    </span>
+                    <Badge variant="secondary">{selectedCandidates.length}</Badge>
+                  </div>
+                </div>
+              </AlertDescription>
+            </Alert>
+          </div>
+        </ScrollArea>
+
+        <div className="border-t pt-4 mt-2 bg-background">
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleStartScreening}
+              disabled={isLoading || !selectedRole || selectedCandidates.length === 0}
+              className="bg-gradient-primary border-0"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Phone className="w-4 h-4 mr-2" />
+                  Start Screening
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
