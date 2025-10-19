@@ -161,7 +161,7 @@ export function BulkScreeningModal({
       console.error('Error starting bulk screening:', error);
       toast({
         title: 'Error',
-        description: 'Failed to start bulk screening',
+        description: error instanceof Error ? error.message : 'Failed to start bulk screening',
         variant: 'destructive',
       });
     } finally {

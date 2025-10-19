@@ -303,9 +303,15 @@ export function useDemoAPI() {
     batch_size: number;
   }) => {
     if (DEMO_MODE) {
-      return fetchDemoAPI(`${DEMO_ENDPOINTS.screenings}/bulk-process`, {
+      return fetchDemoAPI(DEMO_ENDPOINTS.bulkScreenings, {
         method: 'POST',
-        body: JSON.stringify(params)
+        body: JSON.stringify({
+          roleId: params.role_id,
+          candidateIds: params.candidate_ids,
+          schedulingType: params.scheduling_type,
+          scheduledTime: params.scheduled_time,
+          batchSize: params.batch_size
+        })
       });
     }
 
