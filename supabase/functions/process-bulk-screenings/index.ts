@@ -240,7 +240,6 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
           conversation_initiation_client_data: {
             conversation_config_override: {
               agent: {
-                first_message: `Hello ${candidate.name}, this is an automated screening call for the ${role.title} position at ${role.location}. Are you available to answer a few questions?`,
                 language: candidateLanguage,
               }
             },

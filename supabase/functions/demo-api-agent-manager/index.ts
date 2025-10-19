@@ -158,7 +158,7 @@ Note-taking Framework:
     conversation_config: {
       agent: {
         prompt: prompt,
-        first_message: `Hello! This is a screening call from ${organization.name} regarding your application for the ${role.title} position. I'm calling to learn more about your background and experience. Is this a good time to talk for about 10 to 15 minutes?`,
+        first_message: `Hello {{candidate_name}}! This is a screening call from ${organization.name} regarding your application for the {{role_title}} position at {{location}}. I'm calling to learn more about your background and experience. Is this a good time to talk for about 10 to 15 minutes?`,
         language: "en",
         llm: {
           provider: "openai",
