@@ -77,6 +77,7 @@ export default function Screens() {
   const [screens, setScreens] = useState<Screen[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [bulkScreeningOpen, setBulkScreeningOpen] = useState(false);
 
@@ -111,6 +112,45 @@ export default function Screens() {
     // Note: Realtime subscriptions removed for demo mode
     // In demo mode, users can manually refresh to see updates
   }, []);
+
+  const handleRecoverStuckCalls = async () => {
+    setRecovering(true);
+    try {
+      const response = await fetch(
+        'https://yfuroouzxmxlvkwsmtny.supabase.co/functions/v1/recover-stuck-screens',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          }
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Recovery failed');
+      }
+
+      toast({
+        title: "Recovery Complete",
+        description: `Recovered ${result.recovered} screens, ${result.failed} failed`,
+      });
+
+      // Refresh the screens list
+      await fetchScreens(false);
+    } catch (error: any) {
+      console.error('Recovery error:', error);
+      toast({
+        title: "Recovery Failed",
+        description: error.message || "Failed to recover stuck calls",
+        variant: "destructive"
+      });
+    } finally {
+      setRecovering(false);
+    }
+  };
 
   const filteredScreens = screens.filter(screen => {
     const matchesSearch = 
@@ -212,6 +252,20 @@ export default function Screens() {
               )}
               Refresh
             </Button>
+            {stats.inProgress > 0 && (
+              <Button 
+                variant="outline" 
+                onClick={handleRecoverStuckCalls}
+                disabled={recovering}
+              >
+                {recovering ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                )}
+                Recover Stuck Calls
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setExportDialogOpen(true)}>
               <Download className="w-4 h-4 mr-2" />
               Export
