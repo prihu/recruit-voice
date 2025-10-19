@@ -237,6 +237,7 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
           agent_id: role.voice_agent_id,
           agent_phone_number_id: twilioConfig.agent_phone_number_id,
           to_number: candidate.phone,
+          webhook_url: `${supabaseUrl}/functions/v1/elevenlabs-webhook`,
           conversation_initiation_client_data: {
             conversation_config_override: {
               agent: {
@@ -248,7 +249,12 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
               role_title: role.title,
               location: role.location
             },
-            user_id: candidate.id
+            custom_data: {
+              screen_id: screen.id,
+              candidate_id: candidate.id,
+              role_id: role.id,
+              organization_id: screen.organization_id
+            }
           }
         }),
       });
