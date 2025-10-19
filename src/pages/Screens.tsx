@@ -41,6 +41,7 @@ import { toast } from '@/hooks/use-toast';
 import { ExportDialog } from '@/components/ExportDialog';
 import { BulkScreeningModal } from '@/components/BulkScreeningModal';
 import { ScreeningQueue } from '@/components/ScreeningQueue';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Screen {
   id: string;
@@ -116,26 +117,12 @@ export default function Screens() {
   const handleRecoverStuckCalls = async () => {
     setRecovering(true);
     try {
-      const response = await fetch(
-        'https://yfuroouzxmxlvkwsmtny.supabase.co/functions/v1/recover-stuck-screens',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-          }
-        }
-      );
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Recovery failed');
-      }
+      const { data, error } = await supabase.functions.invoke('recover-stuck-screens', { body: {} });
+      if (error) throw error;
 
       toast({
         title: "Recovery Complete",
-        description: `Recovered ${result.recovered} screens, ${result.failed} failed`,
+        description: `Recovered ${data?.recovered ?? 0} screens, ${data?.failed ?? 0} failed`,
       });
 
       // Refresh the screens list

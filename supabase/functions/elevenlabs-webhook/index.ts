@@ -108,32 +108,46 @@ serve(async (req) => {
           updateData.ai_summary = analysis.transcript_summary;
         }
 
-        // Extract evaluation criteria results
-        if (analysis.evaluation_criteria_results) {
-          const criteria = analysis.evaluation_criteria_results;
-          
+        // Extract evaluation criteria results (normalize array/object)
+        if (analysis.evaluation_criteria_results !== undefined) {
+          const evalRaw = analysis.evaluation_criteria_results as any;
+          let evalArray: any[] = [];
+          if (Array.isArray(evalRaw)) {
+            evalArray = evalRaw;
+          } else if (evalRaw && typeof evalRaw === 'object') {
+            evalArray = Object.entries(evalRaw).map(([criteria, v]: [string, any]) => ({
+              criteria,
+              ...((v as any) || {}),
+              result: (v as any)?.result ?? (((v as any)?.passed) ? 'pass' : 'fail'),
+              passed: (v as any)?.passed ?? ((v as any)?.result === 'pass'),
+              reason: (v as any)?.reason ?? (v as any)?.details ?? null,
+            }));
+          }
+          console.log('[WEBHOOK] evaluation_criteria_results shape:', Array.isArray(evalRaw) ? 'array' : typeof evalRaw, 'items:', evalArray.length);
+
           // Store structured answers
-          updateData.answers = criteria;
+          if (evalArray.length > 0) {
+            updateData.answers = evalArray;
+          }
 
           // Calculate score (0-100 based on criteria pass rate)
-          const criteriaKeys = Object.keys(criteria);
-          if (criteriaKeys.length > 0) {
-            const passedCriteria = criteriaKeys.filter(key => criteria[key]?.passed === true).length;
-            updateData.score = (passedCriteria / criteriaKeys.length) * 100;
+          const passedCount = evalArray.filter(r => r.passed === true || r.result === 'pass').length;
+          const total = evalArray.length;
+          if (total > 0) {
+            updateData.score = (passedCount / total) * 100;
           }
 
           // Determine outcome
-          if (analysis.call_successful !== undefined) {
+          if (typeof analysis.call_successful === 'boolean') {
             updateData.outcome = analysis.call_successful ? 'pass' : 'fail';
           } else if (updateData.score !== undefined) {
-            updateData.outcome = updateData.score >= 60 ? 'pass' : 'fail';
+            updateData.outcome = (updateData.score as number) >= 60 ? 'pass' : 'fail';
           }
 
           // Extract failure reasons if any
-          const reasons = criteriaKeys
-            .filter(key => criteria[key]?.passed === false)
-            .map(key => criteria[key]?.reason || key);
-          
+          const reasons = evalArray
+            .filter(r => r.passed === false || r.result === 'fail')
+            .map(r => r.reason || r.criteria || 'Unknown criteria failed');
           if (reasons.length > 0) {
             updateData.reasons = reasons;
           }
@@ -159,12 +173,11 @@ serve(async (req) => {
         .single();
 
       if (screen?.bulk_operation_id) {
-        const { error: bulkError } = await supabase.rpc('increment', {
-          table_name: 'bulk_operations',
-          row_id: screen.bulk_operation_id,
-          field_name: 'completed_count'
-        }).single();
-
+        const count_type = updateData.outcome === 'pass' ? 'completed_count' : 'failed_count';
+        const { error: bulkError } = await supabase.rpc('increment_bulk_operation_count', {
+          operation_id: screen.bulk_operation_id,
+          count_type
+        });
         if (bulkError) {
           console.warn('Could not increment bulk operation count:', bulkError);
         }
@@ -196,13 +209,10 @@ serve(async (req) => {
         .single();
 
       if (screen?.bulk_operation_id) {
-        const { error: bulkError } = await supabase
-          .from('bulk_operations')
-          .update({
-            failed_count: supabase.sql`failed_count + 1`
-          })
-          .eq('id', screen.bulk_operation_id);
-
+        const { error: bulkError } = await supabase.rpc('increment_bulk_operation_count', {
+          operation_id: screen.bulk_operation_id,
+          count_type: 'failed_count'
+        });
         if (bulkError) {
           console.warn('Could not increment failed count:', bulkError);
         }

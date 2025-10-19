@@ -117,20 +117,38 @@ Deno.serve(async (req) => {
           const analysis = conversationData.analysis || {};
           const metadata = conversationData.metadata || {};
 
-          // Calculate score from evaluation criteria
-          const evaluationResults = analysis.evaluation_criteria_results || [];
-          const passedCriteria = evaluationResults.filter((r: any) => r.result === 'pass').length;
+          // Normalize and calculate score from evaluation criteria
+          const evalRaw = analysis.evaluation_criteria_results;
+          let evaluationResults: any[] = [];
+          if (Array.isArray(evalRaw)) {
+            evaluationResults = evalRaw;
+          } else if (evalRaw && typeof evalRaw === 'object') {
+            evaluationResults = Object.entries(evalRaw).map(([criteria, v]: [string, any]) => ({
+              criteria,
+              ...((v as any) || {}),
+              result: (v as any)?.result ?? (((v as any)?.passed) ? 'pass' : 'fail'),
+              passed: (v as any)?.passed ?? ((v as any)?.result === 'pass'),
+              reason: (v as any)?.reason ?? (v as any)?.details ?? null,
+            }));
+          }
+          console.log('[POLL] evaluation_criteria_results shape:', typeof evalRaw, 'items:', evaluationResults.length);
+
+          const passedCriteria = evaluationResults.filter((r: any) => r.passed === true || r.result === 'pass').length;
           const totalCriteria = evaluationResults.length;
           const score = totalCriteria > 0 ? (passedCriteria / totalCriteria) * 100 : 0;
 
           // Determine outcome
-          const callSuccessful = analysis.call_successful !== false;
-          const outcome = callSuccessful && score >= 60 ? 'pass' : 'fail';
+          let outcome: 'pass' | 'fail';
+          if (typeof analysis.call_successful === 'boolean') {
+            outcome = analysis.call_successful ? 'pass' : 'fail';
+          } else {
+            outcome = score >= 60 ? 'pass' : 'fail';
+          }
 
           // Extract reasons for failure
           const reasons = evaluationResults
-            .filter((r: any) => r.result === 'fail')
-            .map((r: any) => r.criteria || 'Unknown criteria failed');
+            .filter((r: any) => r.passed === false || r.result === 'fail')
+            .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed');
 
           // Prepare update data
           const updateData = {
