@@ -17,177 +17,72 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get the authorization header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('No authorization header');
-    }
-
-    // Verify the user
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace('Bearer ', '')
-    );
-    
-    if (authError || !user) {
-      throw new Error('Unauthorized');
-    }
-
     const { 
-      bulk_operation_id,
-      role_id,
-      candidate_ids,
-      scheduling_type,
-      scheduled_time,
-      batch_size = 10,
-      action = 'start'
+      bulkOperationId,
+      action = 'start',
+      batch_size = 10
     } = await req.json();
 
     console.log('Processing bulk screening:', { 
-      bulk_operation_id, 
-      action, 
-      candidate_count: candidate_ids?.length 
+      bulkOperationId, 
+      action
     });
 
-    // Handle different actions
-    if (action === 'resume') {
-      // Resume a paused operation
-      const { error } = await supabase
-        .from('bulk_operations')
-        .update({ 
-          status: 'in_progress',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', bulk_operation_id);
+    if (!bulkOperationId) {
+      throw new Error('bulkOperationId is required');
+    }
 
-      if (error) throw error;
+    // Fetch existing pending screens for this bulk operation
+    const { data: pendingScreens, error: fetchError } = await supabase
+      .from('screens')
+      .select('*')
+      .eq('bulk_operation_id', bulkOperationId)
+      .eq('status', 'pending');
 
-      // Continue processing pending screens
-      const { data: pendingScreens } = await supabase
-        .from('screens')
-        .select('*')
-        .eq('bulk_operation_id', bulk_operation_id)
-        .eq('status', 'pending');
+    if (fetchError) {
+      console.error('Error fetching pending screens:', fetchError);
+      throw fetchError;
+    }
 
-      if (pendingScreens && pendingScreens.length > 0) {
-        // Process in background
-        processBatch(supabase, pendingScreens.slice(0, batch_size), bulk_operation_id);
-      }
-
+    if (!pendingScreens || pendingScreens.length === 0) {
       return new Response(
         JSON.stringify({ 
           success: true, 
-          message: 'Operation resumed',
-          pending_count: pendingScreens?.length || 0
+          message: 'No pending screens to process'
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    if (action === 'retry_failed') {
-      // Retry failed screens
-      const { data: failedScreens } = await supabase
-        .from('screens')
-        .select('*')
-        .eq('bulk_operation_id', bulk_operation_id)
-        .eq('status', 'failed')
-        .in('candidate_id', candidate_ids);
-
-      if (failedScreens && failedScreens.length > 0) {
-        // Reset status to pending for retry
-        await supabase
-          .from('screens')
-          .update({ 
-            status: 'pending',
-            attempts: 0,
-            updated_at: new Date().toISOString()
-          })
-          .in('id', failedScreens.map(s => s.id));
-
-        // Process in background
-        processBatch(supabase, failedScreens.slice(0, batch_size), bulk_operation_id);
-      }
-
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          message: 'Retrying failed calls',
-          retry_count: failedScreens?.length || 0
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Start new bulk operation
-    if (!bulk_operation_id || !role_id || !candidate_ids || candidate_ids.length === 0) {
-      throw new Error('Missing required parameters');
-    }
-
-    // Update bulk operation status
+    // Update bulk operation to in_progress
     const { error: updateError } = await supabase
       .from('bulk_operations')
       .update({ 
         status: 'in_progress',
-        started_at: new Date().toISOString()
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       })
-      .eq('id', bulk_operation_id);
+      .eq('id', bulkOperationId);
 
-    if (updateError) throw updateError;
-
-    // Get organization ID from user
-    const { data: orgMember } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!orgMember) throw new Error('Organization not found');
-
-    // Create screen records for each candidate
-    const screens = candidate_ids.map((candidate_id: string) => ({
-      candidate_id,
-      role_id,
-      user_id: user.id,
-      organization_id: orgMember.organization_id,
-      bulk_operation_id,
-      status: 'pending',
-      screening_type: 'voice',
-      scheduled_at: scheduled_time || new Date().toISOString(),
-      attempts: 0
-    }));
-
-    const { data: createdScreens, error: screenError } = await supabase
-      .from('screens')
-      .insert(screens)
-      .select();
-
-    if (screenError) throw screenError;
-
-    // Process first batch immediately if immediate scheduling
-    if (scheduling_type === 'immediate' && createdScreens) {
-      const firstBatch = createdScreens.slice(0, batch_size);
-      
-      // Process in background
-      processBatch(supabase, firstBatch, bulk_operation_id);
-    } else if (scheduling_type === 'scheduled' && scheduled_time) {
-      // Create scheduled call records
-      const scheduledCalls = createdScreens?.map((screen: any) => ({
-        screen_id: screen.id,
-        organization_id: orgMember.organization_id,
-        scheduled_time: scheduled_time,
-        status: 'pending'
-      })) || [];
-
-      await supabase
-        .from('scheduled_calls')
-        .insert(scheduledCalls);
+    if (updateError) {
+      console.error('Error updating bulk operation:', updateError);
+      throw updateError;
     }
+
+    console.log(`Starting to process ${pendingScreens.length} pending screens for bulk operation ${bulkOperationId}`);
+
+    // Process first batch in background
+    const firstBatch = pendingScreens.slice(0, batch_size);
+    EdgeRuntime.waitUntil(
+      processBatch(supabase, firstBatch, bulkOperationId)
+    );
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        bulk_operation_id,
-        screens_created: createdScreens?.length || 0,
-        message: `Started bulk screening for ${candidate_ids.length} candidates`
+        message: `Started processing ${pendingScreens.length} screens`,
+        bulk_operation_id: bulkOperationId,
+        pending_count: pendingScreens.length
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

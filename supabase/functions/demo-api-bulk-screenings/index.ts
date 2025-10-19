@@ -209,18 +209,19 @@ serve(async (req) => {
           {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${supabaseServiceRoleKey}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              bulkOperationId: operationId,
-              action: 'start'
+              bulkOperationId: operationId
             })
           }
         );
         
         if (!processResponse.ok) {
-          console.error('Failed to trigger bulk processing');
+          const errorText = await processResponse.text();
+          console.error('Failed to trigger bulk processing:', errorText);
+        } else {
+          console.log('Successfully triggered bulk processing for operation:', operationId);
         }
       }
       
@@ -302,18 +303,19 @@ serve(async (req) => {
           {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${supabaseServiceRoleKey}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              bulkOperationId: bulkOp.id,
-              action: 'start'
+              bulkOperationId: bulkOp.id
             })
           }
         );
         
         if (!processResponse.ok) {
-          console.error('Failed to trigger bulk processing');
+          const errorText = await processResponse.text();
+          console.error('Failed to trigger bulk processing:', errorText);
+        } else {
+          console.log('Successfully triggered bulk processing for operation:', bulkOp.id);
         }
       }
       
