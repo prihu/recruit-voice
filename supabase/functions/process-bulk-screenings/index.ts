@@ -74,7 +74,7 @@ serve(async (req) => {
     // Process first batch in background
     const firstBatch = pendingScreens.slice(0, batch_size);
     EdgeRuntime.waitUntil(
-      processBatch(supabase, firstBatch, bulkOperationId)
+      processBatch(supabase, firstBatch, bulkOperationId, supabaseUrl)
     );
 
     return new Response(
@@ -100,7 +100,7 @@ serve(async (req) => {
 });
 
 // Process a batch of screens in the background
-async function processBatch(supabase: any, screens: any[], bulkOperationId: string) {
+async function processBatch(supabase: any, screens: any[], bulkOperationId: string, supabaseUrl: string) {
   const elevenLabsApiKey = Deno.env.get('ELEVENLABS_API_KEY');
   
   if (!elevenLabsApiKey) {
@@ -428,7 +428,7 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
 
     if (nextBatch && nextBatch.length > 0) {
       // Continue processing in background
-      setTimeout(() => processBatch(supabase, nextBatch, bulkOperationId), 5000);
+      setTimeout(() => processBatch(supabase, nextBatch, bulkOperationId, supabaseUrl), 5000);
     }
   }
 }

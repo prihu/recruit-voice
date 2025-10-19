@@ -90,7 +90,9 @@ serve(async (req) => {
     
     const url = new URL(req.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
-    const operationId = pathParts[pathParts.length - 1];
+    const lastSegment = pathParts[pathParts.length - 1];
+    // Check if last segment is the function name or an actual operation ID
+    const operationId = lastSegment === 'demo-api-bulk-screenings' ? undefined : lastSegment;
     
     // GET /bulk-operations - List all bulk operations
     if (req.method === 'GET' && !operationId) {
