@@ -24,15 +24,15 @@ Deno.serve(async (req) => {
 
     console.log('Starting recovery of stuck screens...');
 
-    // Find screens stuck in 'in_progress' status for more than 30 minutes
-    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    // Find screens stuck in 'in_progress' status for more than 5 minutes
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     
     const { data: stuckScreens, error: fetchError } = await supabase
       .from('screens')
       .select('id, session_id, bulk_operation_id, organization_id')
       .eq('status', 'in_progress')
       .not('session_id', 'is', null)
-      .lt('started_at', thirtyMinutesAgo);
+      .lt('started_at', fiveMinutesAgo);
 
     if (fetchError) {
       console.error('Error fetching stuck screens:', fetchError);
@@ -81,10 +81,9 @@ Deno.serve(async (req) => {
               .eq('id', screen.id);
 
             if (screen.bulk_operation_id) {
-              await supabase.rpc('increment', {
-                table_name: 'bulk_operations',
-                row_id: screen.bulk_operation_id,
-                column_name: 'failed_count',
+              await supabase.rpc('increment_bulk_operation_count', {
+                operation_id: screen.bulk_operation_id,
+                count_type: 'failed_count',
               });
             }
 
@@ -145,10 +144,10 @@ Deno.serve(async (req) => {
 
         // Update bulk operation count
         if (screen.bulk_operation_id) {
-          await supabase.rpc('increment', {
-            table_name: 'bulk_operations',
-            row_id: screen.bulk_operation_id,
-            column_name: outcome === 'pass' ? 'completed_count' : 'failed_count',
+          const count_type = outcome === 'pass' ? 'completed_count' : 'failed_count';
+          await supabase.rpc('increment_bulk_operation_count', {
+            operation_id: screen.bulk_operation_id,
+            count_type: count_type,
           });
         }
 

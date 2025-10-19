@@ -83,10 +83,10 @@ Deno.serve(async (req) => {
                 .eq('id', screen.id);
 
               if (screen.bulk_operation_id) {
-                await supabase
-                  .from('bulk_operations')
-                  .update({ failed_count: supabase.raw('failed_count + 1') })
-                  .eq('id', screen.bulk_operation_id);
+                await supabase.rpc('increment_bulk_operation_count', {
+                  operation_id: screen.bulk_operation_id,
+                  count_type: 'failed_count',
+                });
               }
 
               return { screenId: screen.id, status: 'marked_failed' };
@@ -159,11 +159,11 @@ Deno.serve(async (req) => {
 
           // Update bulk operation count
           if (screen.bulk_operation_id) {
-            const columnToIncrement = outcome === 'pass' ? 'completed_count' : 'failed_count';
-            await supabase
-              .from('bulk_operations')
-              .update({ [columnToIncrement]: supabase.raw(`${columnToIncrement} + 1`) })
-              .eq('id', screen.bulk_operation_id);
+            const count_type = outcome === 'pass' ? 'completed_count' : 'failed_count';
+            await supabase.rpc('increment_bulk_operation_count', {
+              operation_id: screen.bulk_operation_id,
+              count_type: count_type,
+            });
           }
 
           console.log(`[POLL] Successfully updated screen ${screen.id}`);

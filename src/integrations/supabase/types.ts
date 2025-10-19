@@ -716,6 +716,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: string
       }
+      increment_bulk_operation_count: {
+        Args: { count_type: string; operation_id: string }
+        Returns: undefined
+      }
       is_org_admin: {
         Args: { _org_id: string }
         Returns: boolean
