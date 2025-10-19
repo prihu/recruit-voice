@@ -1,17 +1,94 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { TestTube, Check, X, Loader2, AlertCircle, Key } from 'lucide-react';
+import { TestTube, Check, X, Loader2, AlertCircle, Key, Phone } from 'lucide-react';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function Settings() {
   const demoAPI = useDemoAPI();
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connected' | 'error' | 'missing-key'>('idle');
+  const [agentPhoneNumberId, setAgentPhoneNumberId] = useState('');
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
+
+  // Load existing Twilio config on mount
+  useEffect(() => {
+    const loadTwilioConfig = async () => {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) return;
+
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.user.id)
+        .single();
+
+      if (!member) return;
+
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('twilio_config')
+        .eq('id', member.organization_id)
+        .single();
+
+      const config = org?.twilio_config as { agent_phone_number_id?: string } | null;
+      if (config?.agent_phone_number_id) {
+        setAgentPhoneNumberId(config.agent_phone_number_id);
+      }
+    };
+    
+    loadTwilioConfig();
+  }, []);
+
+  // Save Twilio configuration
+  const saveTwilioConfig = async () => {
+    setIsSavingPhone(true);
+    
+    try {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) throw new Error('Not authenticated');
+
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.user.id)
+        .single();
+
+      if (!member) throw new Error('Organization not found');
+
+      const { error } = await supabase
+        .from('organizations')
+        .update({
+          twilio_config: {
+            agent_phone_number_id: agentPhoneNumberId
+          }
+        })
+        .eq('id', member.organization_id);
+
+      if (error) throw error;
+
+      toast({
+        title: "✅ Configuration Saved",
+        description: "ElevenLabs phone number configured successfully",
+      });
+    } catch (error) {
+      console.error('Error saving Twilio config:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save configuration",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSavingPhone(false);
+    }
+  };
 
   const testElevenLabsConnection = async () => {
     setIsTestingConnection(true);
@@ -123,6 +200,57 @@ export default function Settings() {
                 • Configure agent IDs in the Voice tab when editing a role
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* ElevenLabs Phone Number Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Phone className="w-5 h-5" />
+              ElevenLabs Phone Number
+            </CardTitle>
+            <CardDescription>
+              Configure your ElevenLabs phone number for making outbound calls to candidates.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="phone-number-id">Agent Phone Number ID</Label>
+              <Input
+                id="phone-number-id"
+                value={agentPhoneNumberId}
+                onChange={(e) => setAgentPhoneNumberId(e.target.value)}
+                placeholder="e.g., phnum_xxxxx..."
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Find this in your ElevenLabs dashboard under <strong>Conversational AI → Phone Numbers</strong>
+              </p>
+            </div>
+
+            <Button 
+              onClick={saveTwilioConfig} 
+              disabled={isSavingPhone || !agentPhoneNumberId}
+            >
+              {isSavingPhone ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Phone Number'
+              )}
+            </Button>
+
+            {agentPhoneNumberId && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Current phone number ID: <code className="text-xs">{agentPhoneNumberId}</code>
+                </AlertDescription>
+              </Alert>
+            )}
           </CardContent>
         </Card>
 

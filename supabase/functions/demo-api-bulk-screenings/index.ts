@@ -219,7 +219,10 @@ serve(async (req) => {
         
         if (!processResponse.ok) {
           const errorText = await processResponse.text();
-          console.error('Failed to trigger bulk processing:', errorText);
+          console.error('Failed to trigger bulk processing:', {
+            status: processResponse.status,
+            body: errorText
+          });
         } else {
           console.log('Successfully triggered bulk processing for operation:', operationId);
         }
@@ -239,6 +242,79 @@ serve(async (req) => {
       
       if (!roleId || !candidateIds || !Array.isArray(candidateIds)) {
         throw new Error('roleId and candidateIds array are required');
+      }
+
+      // Validate Twilio configuration exists
+      const { data: org, error: orgError } = await supabase
+        .from('organizations')
+        .select('twilio_config')
+        .eq('id', DEMO_ORG_ID)
+        .single();
+
+      if (orgError || !org) {
+        console.error('Organization fetch error:', orgError);
+        return new Response(
+          JSON.stringify({ 
+            error: 'Organization not found' 
+          }),
+          { 
+            status: 404, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      const twilioConfig = org.twilio_config as { agent_phone_number_id?: string } | null;
+
+      if (!twilioConfig?.agent_phone_number_id) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Phone number not configured. Please go to Settings and add your ElevenLabs phone number ID before starting bulk screening.' 
+          }),
+          { 
+            status: 400, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      // Validate role has voice agent configured
+      const { data: role } = await supabase
+        .from('roles')
+        .select('voice_agent_id')
+        .eq('id', roleId)
+        .single();
+
+      if (!role?.voice_agent_id) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'Voice agent not configured for this role. Please configure the voice agent in the role settings before starting bulk screening.' 
+          }),
+          { 
+            status: 400, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      // Validate all candidates have phone numbers
+      const { data: candidatesData } = await supabase
+        .from('candidates')
+        .select('id, name, phone')
+        .in('id', candidateIds);
+
+      const candidatesWithoutPhone = candidatesData?.filter(c => !c.phone || c.phone.trim() === '') || [];
+      if (candidatesWithoutPhone.length > 0) {
+        return new Response(
+          JSON.stringify({ 
+            error: `${candidatesWithoutPhone.length} candidate(s) missing phone numbers. Please add phone numbers before screening.`,
+            candidates: candidatesWithoutPhone.map(c => ({ id: c.id, name: c.name }))
+          }),
+          { 
+            status: 400, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
       }
       
       // Create new bulk operation
@@ -313,10 +389,25 @@ serve(async (req) => {
         
         if (!processResponse.ok) {
           const errorText = await processResponse.text();
-          console.error('Failed to trigger bulk processing:', errorText);
-        } else {
-          console.log('Successfully triggered bulk processing for operation:', bulkOp.id);
+          console.error('Failed to trigger bulk processing:', {
+            status: processResponse.status,
+            statusText: processResponse.statusText,
+            body: errorText
+          });
+          
+          return new Response(
+            JSON.stringify({ 
+              error: `Failed to start bulk processing: ${errorText}`,
+              details: 'Check function logs for more information'
+            }),
+            { 
+              status: 502,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+            }
+          );
         }
+        
+        console.log('Successfully triggered bulk processing for operation:', bulkOp.id);
       }
       
       return new Response(

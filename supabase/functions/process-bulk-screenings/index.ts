@@ -147,10 +147,66 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
         continue;
       }
 
-      // Initiate call via ElevenLabs
-      console.log(`Initiating call for candidate ${candidate.name} with agent ${role.voice_agent_id}`);
+      // Get organization's Twilio configuration
+      const { data: org, error: orgError } = await supabase
+        .from('organizations')
+        .select('twilio_config')
+        .eq('id', role.organization_id)
+        .single();
+
+      if (orgError || !org) {
+        console.error('Failed to fetch organization:', orgError);
+        await supabase
+          .from('screens')
+          .update({ 
+            status: 'failed',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', screen.id);
+        
+        await supabase
+          .from('bulk_operations')
+          .update({ 
+            failed_count: supabase.sql`failed_count + 1`,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', bulkOperationId);
+        
+        continue;
+      }
+
+      const twilioConfig = org?.twilio_config as { agent_phone_number_id?: string } | null;
+
+      if (!twilioConfig?.agent_phone_number_id) {
+        console.error('Missing agent_phone_number_id in organization twilio_config');
+        await supabase
+          .from('screens')
+          .update({ 
+            status: 'failed',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', screen.id);
+        
+        await supabase
+          .from('bulk_operations')
+          .update({ 
+            failed_count: supabase.sql`failed_count + 1`,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', bulkOperationId);
+        
+        continue;
+      }
+
+      // Initiate call via ElevenLabs Twilio
+      console.log('Initiating Twilio call:', {
+        agent_id: role.voice_agent_id,
+        agent_phone_number_id: twilioConfig.agent_phone_number_id,
+        to_number: candidate.phone,
+        candidate: candidate.name
+      });
       
-      const response = await fetch('https://api.elevenlabs.io/v1/convai/conversation/initiate_call', {
+      const response = await fetch('https://api.elevenlabs.io/v1/convai/twilio/outbound-call', {
         method: 'POST',
         headers: {
           'xi-api-key': elevenLabsApiKey,
@@ -158,34 +214,117 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
         },
         body: JSON.stringify({
           agent_id: role.voice_agent_id,
-          customer: {
-            number: candidate.phone,
-            name: candidate.name,
-          },
-          first_message: `Hello ${candidate.name}, this is an automated screening call for the ${role.title} position at ${role.location}. Are you available to answer a few questions?`,
+          agent_phone_number_id: twilioConfig.agent_phone_number_id,
+          to_number: candidate.phone,
+          conversation_initiation_client_data: {
+            conversation_config_override: {
+              agent: {
+                first_message: `Hello ${candidate.name}, this is an automated screening call for the ${role.title} position at ${role.location}. Are you available to answer a few questions?`,
+                language: candidate.preferred_language || 'en',
+              }
+            },
+            dynamic_variables: {
+              candidate_name: candidate.name,
+              role_title: role.title,
+              location: role.location
+            },
+            user_id: candidate.id
+          }
         }),
       });
 
       if (!response.ok) {
-        const errorData = await response.text();
-        console.error('ElevenLabs API error:', errorData);
-        throw new Error(`Failed to initiate call: ${response.status}`);
+        const errorText = await response.text();
+        console.error('ElevenLabs Twilio API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText,
+          candidate: candidate.name,
+          phone: candidate.phone
+        });
+        
+        await supabase
+          .from('screens')
+          .update({ 
+            status: 'failed',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', screen.id);
+        
+        await supabase
+          .from('bulk_operations')
+          .update({ 
+            failed_count: supabase.sql`failed_count + 1`,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', bulkOperationId);
+        
+        continue;
       }
 
-      const callData = await response.json();
-      console.log('Call initiated successfully:', callData);
+      const callData = await response.json() as {
+        success: boolean;
+        message: string;
+        conversation_id: string | null;
+        callSid: string | null;
+      };
 
-      // Update screen status
+      console.log('Twilio call response:', {
+        success: callData.success,
+        conversation_id: callData.conversation_id,
+        callSid: callData.callSid,
+        message: callData.message
+      });
+
+      if (!callData.success) {
+        console.error('Twilio call failed:', callData.message);
+        
+        await supabase
+          .from('screens')
+          .update({ 
+            status: 'failed',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', screen.id);
+        
+        await supabase
+          .from('bulk_operations')
+          .update({ 
+            failed_count: supabase.sql`failed_count + 1`,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', bulkOperationId);
+        
+        continue;
+      }
+
+      // Success - update screen
       await supabase
         .from('screens')
         .update({ 
           status: 'in_progress',
-          conversation_id: callData.conversation_id || callData.session_id,
+          session_id: callData.conversation_id,
           started_at: new Date().toISOString(),
           attempts: screen.attempts + 1,
           updated_at: new Date().toISOString()
         })
         .eq('id', screen.id);
+
+      // Create call log entry
+      if (callData.callSid) {
+        await supabase
+          .from('call_logs')
+          .insert({
+            screen_id: screen.id,
+            organization_id: role.organization_id,
+            phone_number: candidate.phone,
+            call_sid: callData.callSid,
+            direction: 'outbound',
+            status: 'initiated'
+          });
+      }
+
+      console.log('Call successfully initiated for candidate:', candidate.name);
 
       // Add a small delay between calls to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 2000));

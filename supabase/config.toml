@@ -69,7 +69,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.process-bulk-screenings]
-verify_jwt = true
+verify_jwt = false
 
 [functions.demo-api-roles]
 verify_jwt = false
