@@ -102,6 +102,11 @@ export interface Screen {
   createdAt: Date;
   updatedAt: Date;
   scheduledAt?: Date;
+  // Call quality metrics
+  conversation_turns?: number;
+  candidate_responded?: boolean;
+  call_connected?: boolean;
+  first_response_time_seconds?: number | null;
 }
 
 export interface TranscriptEntry {

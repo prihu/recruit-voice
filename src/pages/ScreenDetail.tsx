@@ -24,7 +24,8 @@ import {
   FileJson,
   FileSpreadsheet,
   Loader2,
-  PhoneCall
+  PhoneCall,
+  Activity
 } from 'lucide-react';
 import { VoiceScreening } from '@/components/VoiceScreening';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
@@ -73,7 +74,11 @@ export default function ScreenDetail() {
         reasons: screenData.reasons,
         createdAt: new Date(screenData.created_at),
         updatedAt: new Date(screenData.updated_at),
-        scheduledAt: screenData.scheduled_at ? new Date(screenData.scheduled_at) : undefined
+        scheduledAt: screenData.scheduled_at ? new Date(screenData.scheduled_at) : undefined,
+        conversation_turns: screenData.conversation_turns,
+        candidate_responded: screenData.candidate_responded,
+        call_connected: screenData.call_connected,
+        first_response_time_seconds: screenData.first_response_time_seconds
       };
 
       const transformedRole: Role = {
@@ -319,6 +324,110 @@ export default function ScreenDetail() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Call Quality Metrics Card */}
+          {screen.status === 'completed' && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  Call Quality Metrics
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {/* Call Connected Status */}
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">Call Connected</div>
+                    <div className="flex items-center gap-2">
+                      {screen.call_connected ? (
+                        <CheckCircle className="h-4 w-4 text-success" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-destructive" />
+                      )}
+                      <span className="font-medium">
+                        {screen.call_connected ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Candidate Responded */}
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">Candidate Responded</div>
+                    <div className="flex items-center gap-2">
+                      {screen.candidate_responded ? (
+                        <CheckCircle className="h-4 w-4 text-success" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-destructive" />
+                      )}
+                      <span className="font-medium">
+                        {screen.candidate_responded ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Conversation Turns */}
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">Conversation Turns</div>
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium text-lg">
+                        {screen.conversation_turns || 0}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Total messages
+                    </div>
+                  </div>
+
+                  {/* First Response Time */}
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">First Response</div>
+                    {screen.first_response_time_seconds !== null && screen.first_response_time_seconds !== undefined ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-medium text-lg">
+                            {screen.first_response_time_seconds}s
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Time to engage
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quality Indicator Bar */}
+                <div className="mt-4 pt-4 border-t">
+                  <div className="text-sm text-muted-foreground mb-2">Call Quality</div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all ${
+                          screen.call_connected && (screen.conversation_turns || 0) > 5
+                            ? 'bg-success w-full'
+                            : screen.call_connected
+                            ? 'bg-warning w-2/3'
+                            : 'bg-destructive w-1/3'
+                        }`}
+                      />
+                    </div>
+                    <span className="text-sm font-medium">
+                      {screen.call_connected && (screen.conversation_turns || 0) > 5
+                        ? 'Good'
+                        : screen.call_connected
+                        ? 'Fair'
+                        : 'Poor'}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Tabs */}

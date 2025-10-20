@@ -583,11 +583,15 @@ export type Database = {
           attempts: number | null
           audio_url: string | null
           bulk_operation_id: string | null
+          call_connected: boolean | null
           candidate_id: string
+          candidate_responded: boolean | null
           completed_at: string | null
+          conversation_turns: number | null
           created_at: string | null
           duration_seconds: number | null
           extracted_data: Json | null
+          first_response_time_seconds: number | null
           id: string
           organization_id: string | null
           outcome: string | null
@@ -615,11 +619,15 @@ export type Database = {
           attempts?: number | null
           audio_url?: string | null
           bulk_operation_id?: string | null
+          call_connected?: boolean | null
           candidate_id: string
+          candidate_responded?: boolean | null
           completed_at?: string | null
+          conversation_turns?: number | null
           created_at?: string | null
           duration_seconds?: number | null
           extracted_data?: Json | null
+          first_response_time_seconds?: number | null
           id?: string
           organization_id?: string | null
           outcome?: string | null
@@ -647,11 +655,15 @@ export type Database = {
           attempts?: number | null
           audio_url?: string | null
           bulk_operation_id?: string | null
+          call_connected?: boolean | null
           candidate_id?: string
+          candidate_responded?: boolean | null
           completed_at?: string | null
+          conversation_turns?: number | null
           created_at?: string | null
           duration_seconds?: number | null
           extracted_data?: Json | null
+          first_response_time_seconds?: number | null
           id?: string
           organization_id?: string | null
           outcome?: string | null

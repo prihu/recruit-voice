@@ -139,6 +139,36 @@ Deno.serve(async (req) => {
           reasons.push('Candidate did not respond to screening questions', 'Call completed without collecting answers');
         }
 
+        // Calculate call quality metrics
+        const conversationTurns = transcript.length;
+
+        // Count candidate messages
+        const candidateMessages = transcript.filter((msg: any) => 
+          msg.role === 'user' || msg.speaker === 'candidate'
+        ).length;
+
+        const candidateResponded = candidateMessages > 0;
+
+        // Calculate time to first candidate response
+        let firstResponseTime: number | null = null;
+        if (transcript.length > 1) {
+          const firstCandidateMsg = transcript.find((msg: any) => 
+            msg.role === 'user' || msg.speaker === 'candidate'
+          );
+          if (firstCandidateMsg?.time_in_call_secs !== undefined) {
+            firstResponseTime = Math.round(firstCandidateMsg.time_in_call_secs);
+          }
+        }
+
+        const callConnected = conversationTurns >= 2 && candidateResponded;
+
+        console.log(`[RECOVER] Call quality for screen ${screen.id}:`, {
+          conversationTurns,
+          candidateResponded,
+          callConnected,
+          firstResponseTime
+        });
+
         // Prepare update data
         const updateData = {
           status: 'completed',
@@ -151,6 +181,10 @@ Deno.serve(async (req) => {
           reasons: reasons.length > 0 ? reasons : null,
           duration_seconds: metadata.duration_seconds || null,
           recording_url: metadata.recording_url || null,
+          conversation_turns: conversationTurns,
+          candidate_responded: candidateResponded,
+          call_connected: callConnected,
+          first_response_time_seconds: firstResponseTime,
         };
 
         // Update the screen
