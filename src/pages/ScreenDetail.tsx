@@ -270,11 +270,11 @@ export default function ScreenDetail() {
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <span>{format(screen.createdAt, 'PPP')}</span>
+                  <span>{(screen.createdAt instanceof Date && !isNaN(screen.createdAt.getTime())) ? format(screen.createdAt, 'PPP') : '-'}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-muted-foreground" />
-                  <span>{formatDistanceToNow(screen.updatedAt, { addSuffix: true })}</span>
+                  <span>{(screen.updatedAt instanceof Date && !isNaN(screen.updatedAt.getTime())) ? formatDistanceToNow(screen.updatedAt, { addSuffix: true }) : '-'}</span>
                 </div>
               </div>
             </CardContent>
@@ -393,9 +393,15 @@ export default function ScreenDetail() {
                 {screen.transcript && screen.transcript.length > 0 ? (
                   <div className="space-y-4">
                     {screen.transcript.map((entry, index) => {
-                      // Safely parse timestamp
-                      const timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
-                      const isValidTimestamp = timestamp && !isNaN(timestamp.getTime());
+                      // Normalize timestamp to a valid Date if possible
+                      const rawTs = entry.timestamp as any;
+                      const timestamp =
+                        typeof rawTs === 'number'
+                          ? new Date(rawTs)
+                          : typeof rawTs === 'string'
+                            ? (/^\d+$/.test(rawTs) ? new Date(parseInt(rawTs, 10)) : new Date(rawTs))
+                            : null;
+                      const isValidTimestamp = timestamp instanceof Date && !isNaN(timestamp.getTime());
                       
                       return (
                         <div key={index} className={`flex gap-3 ${entry.speaker === 'agent' ? '' : 'flex-row-reverse'}`}>
