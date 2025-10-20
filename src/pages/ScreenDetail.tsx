@@ -392,29 +392,37 @@ export default function ScreenDetail() {
               <CardContent>
                 {screen.transcript && screen.transcript.length > 0 ? (
                   <div className="space-y-4">
-                    {screen.transcript.map((entry, index) => (
-                      <div key={index} className={`flex gap-3 ${entry.speaker === 'agent' ? '' : 'flex-row-reverse'}`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                          entry.speaker === 'agent' 
-                            ? 'bg-primary text-primary-foreground' 
-                            : 'bg-muted text-muted-foreground'
-                        }`}>
-                          {entry.speaker === 'agent' ? <Mic className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
-                        </div>
-                        <div className={`flex-1 ${entry.speaker === 'agent' ? '' : 'text-right'}`}>
-                          <div className={`inline-block p-3 rounded-lg ${
+                    {screen.transcript.map((entry, index) => {
+                      // Safely parse timestamp
+                      const timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
+                      const isValidTimestamp = timestamp && !isNaN(timestamp.getTime());
+                      
+                      return (
+                        <div key={index} className={`flex gap-3 ${entry.speaker === 'agent' ? '' : 'flex-row-reverse'}`}>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
                             entry.speaker === 'agent' 
-                              ? 'bg-muted text-foreground' 
-                              : 'bg-primary text-primary-foreground'
+                              ? 'bg-primary text-primary-foreground' 
+                              : 'bg-muted text-muted-foreground'
                           }`}>
-                            <p className="text-sm">{entry.text}</p>
+                            {entry.speaker === 'agent' ? <Mic className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {format(entry.timestamp, 'HH:mm:ss')}
-                          </p>
+                          <div className={`flex-1 ${entry.speaker === 'agent' ? '' : 'text-right'}`}>
+                            <div className={`inline-block p-3 rounded-lg ${
+                              entry.speaker === 'agent' 
+                                ? 'bg-muted text-foreground' 
+                                : 'bg-primary text-primary-foreground'
+                            }`}>
+                              <p className="text-sm">{entry.text}</p>
+                            </div>
+                            {isValidTimestamp && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {format(timestamp, 'HH:mm:ss')}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-8">
