@@ -26,11 +26,11 @@ import {
   Loader2,
   PhoneCall
 } from 'lucide-react';
-import { formatDistanceToNow, format } from 'date-fns';
 import { VoiceScreening } from '@/components/VoiceScreening';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { toast } from '@/hooks/use-toast';
 import { Screen, Role, Candidate, CallWindow, TranscriptEntry, ScreeningQuestion, FAQEntry, ScoringRule } from '@/types';
+import { safeFormat, safeFormatDistance, parseToDate } from '@/lib/date';
 
 export default function ScreenDetail() {
   const { id } = useParams();
@@ -193,7 +193,7 @@ export default function ScreenDetail() {
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Screening Session</h1>
               <p className="text-muted-foreground mt-1">
-                {screen.candidate?.name} - {screen.role?.title}
+                {candidate.name} - {role.title}
               </p>
             </div>
           </div>
@@ -217,26 +217,26 @@ export default function ScreenDetail() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div>
-                <p className="font-semibold text-lg">{screen.candidate?.name}</p>
-                <p className="text-sm text-muted-foreground">{screen.candidate?.externalId}</p>
+                <p className="font-semibold text-lg">{candidate.name}</p>
+                <p className="text-sm text-muted-foreground">{candidate.externalId}</p>
               </div>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <Phone className="w-4 h-4 text-muted-foreground" />
-                  <span>{screen.candidate?.phone}</span>
+                  <span>{candidate.phone}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-muted-foreground" />
-                  <span>{screen.candidate?.email}</span>
+                  <span>{candidate.email}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-muted-foreground" />
-                  <span>{screen.candidate?.locationPref}</span>
+                  <span>{candidate.locationPref}</span>
                 </div>
               </div>
               <Separator />
               <div className="flex flex-wrap gap-1">
-                {screen.candidate?.skills?.map((skill, index) => (
+                {candidate.skills?.map((skill, index) => (
                   <Badge key={index} variant="secondary">{skill}</Badge>
                 ))}
               </div>
@@ -270,11 +270,11 @@ export default function ScreenDetail() {
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <span>{(screen.createdAt instanceof Date && !isNaN(screen.createdAt.getTime())) ? format(screen.createdAt, 'PPP') : '-'}</span>
+                  <span>{safeFormat(screen.createdAt, 'PPP')}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-muted-foreground" />
-                  <span>{(screen.updatedAt instanceof Date && !isNaN(screen.updatedAt.getTime())) ? formatDistanceToNow(screen.updatedAt, { addSuffix: true }) : '-'}</span>
+                  <span>{safeFormatDistance(screen.updatedAt, { addSuffix: true })}</span>
                 </div>
               </div>
             </CardContent>
@@ -335,7 +335,7 @@ export default function ScreenDetail() {
                 <CardDescription>Candidate responses to screening questions</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {screen.role?.questions.map((question, index) => (
+                {role.questions?.map((question, index) => (
                   <div key={question.id} className="space-y-2 p-4 border rounded-lg bg-card-hover">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -393,15 +393,7 @@ export default function ScreenDetail() {
                 {screen.transcript && screen.transcript.length > 0 ? (
                   <div className="space-y-4">
                     {screen.transcript.map((entry, index) => {
-                      // Normalize timestamp to a valid Date if possible
-                      const rawTs = entry.timestamp as any;
-                      const timestamp =
-                        typeof rawTs === 'number'
-                          ? new Date(rawTs)
-                          : typeof rawTs === 'string'
-                            ? (/^\d+$/.test(rawTs) ? new Date(parseInt(rawTs, 10)) : new Date(rawTs))
-                            : null;
-                      const isValidTimestamp = timestamp instanceof Date && !isNaN(timestamp.getTime());
+                      const timestamp = parseToDate(entry.timestamp);
                       
                       return (
                         <div key={index} className={`flex gap-3 ${entry.speaker === 'agent' ? '' : 'flex-row-reverse'}`}>
@@ -420,9 +412,9 @@ export default function ScreenDetail() {
                             }`}>
                               <p className="text-sm">{entry.text}</p>
                             </div>
-                            {isValidTimestamp && (
+                            {timestamp && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                {format(timestamp, 'HH:mm:ss')}
+                                {safeFormat(timestamp, 'HH:mm:ss')}
                               </p>
                             )}
                           </div>
@@ -464,7 +456,7 @@ export default function ScreenDetail() {
 
                 <div className="space-y-2">
                   <h4 className="font-medium text-sm text-muted-foreground">Rule Evaluation</h4>
-                  {screen.role?.rules.map((rule) => (
+                  {role.rules?.map((rule) => (
                     <div key={rule.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <p className="font-medium text-sm">{rule.name}</p>
