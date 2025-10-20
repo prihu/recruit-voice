@@ -15,6 +15,7 @@ import {
   Clock,
   CheckCircle,
   XCircle,
+  AlertCircle,
   MessageSquare,
   Mic,
   Download,
@@ -173,14 +174,20 @@ export default function ScreenDetail() {
     );
   }
 
-  const getOutcomeColor = (outcome?: string) => {
+  const getOutcomeBadge = (outcome?: string | null) => {
+    if (!outcome) {
+      return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
+    }
+    
     switch (outcome) {
       case 'pass':
-        return 'bg-success text-success-foreground';
+        return <Badge className="bg-green-600 text-white hover:bg-green-600/80"><CheckCircle className="w-4 h-4 mr-1" />Pass</Badge>;
       case 'fail':
-        return 'bg-destructive text-destructive-foreground';
+        return <Badge className="bg-red-600 text-white hover:bg-red-600/80"><XCircle className="w-4 h-4 mr-1" />Fail</Badge>;
+      case 'incomplete':
+        return <Badge className="bg-yellow-600 text-white hover:bg-yellow-600/80"><AlertCircle className="w-4 h-4 mr-1" />Incomplete</Badge>;
       default:
-        return 'bg-muted text-muted-foreground';
+        return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
     }
   };
 
@@ -261,11 +268,7 @@ export default function ScreenDetail() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Outcome</span>
-                <Badge className={getOutcomeColor(screen.outcome)}>
-                  {screen.outcome === 'pass' && <CheckCircle className="w-4 h-4 mr-1" />}
-                  {screen.outcome === 'fail' && <XCircle className="w-4 h-4 mr-1" />}
-                  {screen.outcome || 'Pending'}
-                </Badge>
+                {getOutcomeBadge(screen.outcome)}
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Attempts</span>
@@ -348,6 +351,9 @@ export default function ScreenDetail() {
                       <span className="font-medium">
                         {screen.call_connected ? 'Yes' : 'No'}
                       </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Phone answered
                     </div>
                   </div>
 

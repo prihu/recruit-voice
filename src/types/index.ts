@@ -97,7 +97,7 @@ export interface Screen {
   audioUrl?: string;
   answers?: Record<string, any>;
   score?: number;
-  outcome?: 'pass' | 'fail' | 'incomplete';
+  outcome?: 'pass' | 'fail' | 'incomplete' | null;
   reasons?: string[];
   createdAt: Date;
   updatedAt: Date;

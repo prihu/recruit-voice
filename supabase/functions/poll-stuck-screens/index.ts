@@ -137,22 +137,29 @@ Deno.serve(async (req) => {
           const totalCriteria = evaluationResults.length;
           const score = totalCriteria > 0 ? (passedCriteria / totalCriteria) * 100 : 0;
 
-          // Determine outcome
-          let outcome: 'pass' | 'fail';
-          if (typeof analysis.call_successful === 'boolean') {
-            outcome = analysis.call_successful ? 'pass' : 'fail';
+          // Determine outcome based on screening completion
+          let outcome: 'pass' | 'fail' | 'incomplete';
+          const reasons: string[] = [];
+          
+          if (screeningCompleted) {
+            // Has evaluation data - determine pass/fail
+            if (typeof analysis.call_successful === 'boolean') {
+              outcome = analysis.call_successful ? 'pass' : 'fail';
+            } else {
+              outcome = score >= 60 ? 'pass' : 'fail';
+            }
+
+            // Extract reasons for failure
+            if (outcome === 'fail') {
+              reasons.push(...evaluationResults
+                .filter((r: any) => r.passed === false || r.result === 'fail')
+                .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed')
+              );
+            }
           } else {
-            outcome = score >= 60 ? 'pass' : 'fail';
-          }
-
-          // Extract reasons for failure
-          const reasons = evaluationResults
-            .filter((r: any) => r.passed === false || r.result === 'fail')
-            .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed');
-
-          // Handle case where there's no evaluation data
-          if (evaluationResults.length === 0 && transcript.length < 2) {
-            reasons.push('Candidate did not respond to screening questions', 'Call completed without collecting answers');
+            // No evaluation data - call connected but incomplete
+            outcome = 'incomplete';
+            reasons.push('Screening incomplete - candidate did not complete all questions');
           }
 
           // Calculate call quality metrics
@@ -176,7 +183,11 @@ Deno.serve(async (req) => {
             }
           }
 
-          const callConnected = conversationTurns >= 2 && candidateResponded;
+          // Call is connected if agent spoke (phone was answered)
+          const callConnected = conversationTurns >= 1;
+          
+          // Screening completed if we have evaluation data
+          const screeningCompleted = evaluationResults.length > 0;
 
           console.log(`[POLL] Call quality for screen ${screen.id}:`, {
             conversationTurns,

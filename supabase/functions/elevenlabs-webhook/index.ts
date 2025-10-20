@@ -137,28 +137,28 @@ serve(async (req) => {
             updateData.score = (passedCount / total) * 100;
           }
 
-          // Determine outcome
-          if (typeof analysis.call_successful === 'boolean') {
-            updateData.outcome = analysis.call_successful ? 'pass' : 'fail';
-          } else if (updateData.score !== undefined) {
-            updateData.outcome = (updateData.score as number) >= 60 ? 'pass' : 'fail';
-          }
+          // Determine outcome based on screening completion
+          if (screeningCompleted) {
+            // Has evaluation data - determine pass/fail
+            if (typeof analysis.call_successful === 'boolean') {
+              updateData.outcome = analysis.call_successful ? 'pass' : 'fail';
+            } else if (updateData.score !== undefined) {
+              updateData.outcome = (updateData.score as number) >= 60 ? 'pass' : 'fail';
+            }
 
-          // Extract failure reasons if any
-          const reasons = evalArray
-            .filter(r => r.passed === false || r.result === 'fail')
-            .map(r => r.reason || r.criteria || 'Unknown criteria failed');
-          if (reasons.length > 0) {
-            updateData.reasons = reasons;
-          }
-        } else {
-          // No evaluation data - candidate likely didn't engage
-          const transcriptTurns = Array.isArray(webhookData.transcript) ? webhookData.transcript.length : 0;
-          if (transcriptTurns < 2) {
-            updateData.outcome = 'fail';
+            // Extract failure reasons if any
+            const reasons = evalArray
+              .filter(r => r.passed === false || r.result === 'fail')
+              .map(r => r.reason || r.criteria || 'Unknown criteria failed');
+            if (reasons.length > 0) {
+              updateData.reasons = reasons;
+            }
+          } else {
+            // No evaluation data - call connected but incomplete
+            updateData.outcome = 'incomplete';
             updateData.score = 0;
-            updateData.reasons = ['Candidate did not respond to screening questions', 'Call completed without collecting answers'];
-            console.log('[WEBHOOK] No evaluation data and minimal transcript - candidate did not engage');
+            updateData.reasons = ['Screening incomplete - candidate did not complete all questions'];
+            console.log('[WEBHOOK] No evaluation data - screening incomplete');
           }
         }
 
@@ -186,8 +186,11 @@ serve(async (req) => {
           }
         }
 
-        // Call is "connected" if candidate actually engaged
-        const callConnected = conversationTurns >= 2 && candidateResponded;
+        // Call is connected if agent spoke (phone was answered)
+        const callConnected = conversationTurns >= 1;
+        
+        // Screening completed if we have evaluation data
+        const screeningCompleted = evalArray.length > 0;
 
         // Add call quality metrics to update data
         updateData.conversation_turns = conversationTurns;

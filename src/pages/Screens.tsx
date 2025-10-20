@@ -190,18 +190,20 @@ export default function Screens() {
     }
   };
 
-  const getOutcomeColor = (outcome?: string | null) => {
+  const getOutcomeBadge = (outcome?: string | null) => {
+    if (!outcome) {
+      return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
+    }
+    
     switch (outcome) {
       case 'pass':
-        return 'bg-success text-success-foreground';
+        return <Badge className="bg-green-600 text-white hover:bg-green-600/80">Pass</Badge>;
       case 'fail':
-        return 'bg-destructive text-destructive-foreground';
-      case 'maybe':
-        return 'bg-warning text-warning-foreground';
+        return <Badge className="bg-red-600 text-white hover:bg-red-600/80">Fail</Badge>;
       case 'incomplete':
-        return 'bg-muted text-muted-foreground';
+        return <Badge className="bg-yellow-600 text-white hover:bg-yellow-600/80">Incomplete</Badge>;
       default:
-        return 'bg-secondary text-secondary-foreground';
+        return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
     }
   };
 
@@ -352,7 +354,6 @@ export default function Screens() {
               <SelectItem value="all">All Outcomes</SelectItem>
               <SelectItem value="pass">Pass</SelectItem>
               <SelectItem value="fail">Fail</SelectItem>
-              <SelectItem value="maybe">Maybe</SelectItem>
               <SelectItem value="incomplete">Incomplete</SelectItem>
             </SelectContent>
           </Select>
@@ -410,13 +411,7 @@ export default function Screens() {
                     )}
                   </TableCell>
                   <TableCell>
-                    {screen.outcome ? (
-                      <Badge className={getOutcomeColor(screen.outcome)}>
-                        {screen.outcome}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
+                    {getOutcomeBadge(screen.outcome)}
                   </TableCell>
                   <TableCell>
                     <span className="text-sm text-muted-foreground">
