@@ -134,6 +134,11 @@ Deno.serve(async (req) => {
           .filter((r: any) => r.passed === false || r.result === 'fail')
           .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed');
 
+        // Handle case where there's no evaluation data
+        if (evaluationResults.length === 0 && transcript.length < 2) {
+          reasons.push('Candidate did not respond to screening questions', 'Call completed without collecting answers');
+        }
+
         // Prepare update data
         const updateData = {
           status: 'completed',

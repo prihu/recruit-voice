@@ -151,6 +151,15 @@ serve(async (req) => {
           if (reasons.length > 0) {
             updateData.reasons = reasons;
           }
+        } else {
+          // No evaluation data - candidate likely didn't engage
+          const transcriptTurns = Array.isArray(webhookData.transcript) ? webhookData.transcript.length : 0;
+          if (transcriptTurns < 2) {
+            updateData.outcome = 'fail';
+            updateData.score = 0;
+            updateData.reasons = ['Candidate did not respond to screening questions', 'Call completed without collecting answers'];
+            console.log('[WEBHOOK] No evaluation data and minimal transcript - candidate did not engage');
+          }
         }
       }
 

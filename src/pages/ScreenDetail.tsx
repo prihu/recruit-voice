@@ -277,6 +277,22 @@ export default function ScreenDetail() {
                   <span>{safeFormatDistance(screen.updatedAt, { addSuffix: true })}</span>
                 </div>
               </div>
+              {screen.reasons && screen.reasons.length > 0 && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <span className="text-sm font-medium text-muted-foreground">Issues Identified</span>
+                    <ul className="space-y-1">
+                      {screen.reasons.map((reason, idx) => (
+                        <li key={idx} className="text-sm flex items-start gap-2 text-destructive">
+                          <XCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                          <span>{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
