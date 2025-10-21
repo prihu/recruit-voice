@@ -137,6 +137,43 @@ serve(async (req) => {
             updateData.score = (passedCount / total) * 100;
           }
 
+          // Calculate call quality metrics FIRST (before using them)
+          const transcript = webhookData.transcript || [];
+          const conversationTurns = Array.isArray(transcript) ? transcript.length : 0;
+
+          // Count candidate messages (role: 'user' or speaker: 'candidate')
+          const candidateMessages = Array.isArray(transcript) 
+            ? transcript.filter((msg: any) => 
+                msg.role === 'user' || msg.speaker === 'candidate'
+              ).length 
+            : 0;
+
+          const candidateResponded = candidateMessages > 0;
+
+          // Calculate time to first candidate response (in seconds)
+          let firstResponseTime: number | null = null;
+          if (Array.isArray(transcript) && transcript.length > 1) {
+            const firstCandidateMsg = transcript.find((msg: any) => 
+              msg.role === 'user' || msg.speaker === 'candidate'
+            );
+            if (firstCandidateMsg?.time_in_call_secs !== undefined) {
+              firstResponseTime = Math.round(firstCandidateMsg.time_in_call_secs);
+            }
+          }
+
+          // Call is connected if agent spoke (phone was answered)
+          const callConnected = conversationTurns >= 1;
+          
+          // Screening completed if we have evaluation data
+          const screeningCompleted = evalArray.length > 0;
+
+          console.log('[WEBHOOK] Call quality metrics:', {
+            conversationTurns,
+            candidateResponded,
+            callConnected,
+            firstResponseTime
+          });
+
           // Determine outcome based on screening completion
           if (screeningCompleted) {
             // Has evaluation data - determine pass/fail
@@ -160,50 +197,13 @@ serve(async (req) => {
             updateData.reasons = ['Screening incomplete - candidate did not complete all questions'];
             console.log('[WEBHOOK] No evaluation data - screening incomplete');
           }
+
+          // Add call quality metrics to update data
+          updateData.conversation_turns = conversationTurns;
+          updateData.candidate_responded = candidateResponded;
+          updateData.call_connected = callConnected;
+          updateData.first_response_time_seconds = firstResponseTime;
         }
-
-        // Calculate call quality metrics
-        const transcript = webhookData.transcript || [];
-        const conversationTurns = Array.isArray(transcript) ? transcript.length : 0;
-
-        // Count candidate messages (role: 'user' or speaker: 'candidate')
-        const candidateMessages = Array.isArray(transcript) 
-          ? transcript.filter((msg: any) => 
-              msg.role === 'user' || msg.speaker === 'candidate'
-            ).length 
-          : 0;
-
-        const candidateResponded = candidateMessages > 0;
-
-        // Calculate time to first candidate response (in seconds)
-        let firstResponseTime: number | null = null;
-        if (Array.isArray(transcript) && transcript.length > 1) {
-          const firstCandidateMsg = transcript.find((msg: any) => 
-            msg.role === 'user' || msg.speaker === 'candidate'
-          );
-          if (firstCandidateMsg?.time_in_call_secs !== undefined) {
-            firstResponseTime = Math.round(firstCandidateMsg.time_in_call_secs);
-          }
-        }
-
-        // Call is connected if agent spoke (phone was answered)
-        const callConnected = conversationTurns >= 1;
-        
-        // Screening completed if we have evaluation data
-        const screeningCompleted = evalArray.length > 0;
-
-        // Add call quality metrics to update data
-        updateData.conversation_turns = conversationTurns;
-        updateData.candidate_responded = candidateResponded;
-        updateData.call_connected = callConnected;
-        updateData.first_response_time_seconds = firstResponseTime;
-
-        console.log('[WEBHOOK] Call quality metrics:', {
-          conversationTurns,
-          candidateResponded,
-          callConnected,
-          firstResponseTime
-        });
       }
 
       // Update screen record

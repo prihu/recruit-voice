@@ -121,32 +121,7 @@ Deno.serve(async (req) => {
         const totalCriteria = evaluationResults.length;
         const score = totalCriteria > 0 ? (passedCriteria / totalCriteria) * 100 : 0;
 
-        // Determine outcome based on screening completion
-        let outcome: 'pass' | 'fail' | 'incomplete';
-        const reasons: string[] = [];
-        
-        if (screeningCompleted) {
-          // Has evaluation data - determine pass/fail
-          if (typeof analysis.call_successful === 'boolean') {
-            outcome = analysis.call_successful ? 'pass' : 'fail';
-          } else {
-            outcome = score >= 60 ? 'pass' : 'fail';
-          }
-
-          // Extract reasons for failure
-          if (outcome === 'fail') {
-            reasons.push(...evaluationResults
-              .filter((r: any) => r.passed === false || r.result === 'fail')
-              .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed')
-            );
-          }
-        } else {
-          // No evaluation data - call connected but incomplete
-          outcome = 'incomplete';
-          reasons.push('Screening incomplete - candidate did not complete all questions');
-        }
-
-        // Calculate call quality metrics
+        // Calculate call quality metrics FIRST (before using them)
         const conversationTurns = transcript.length;
 
         // Count candidate messages
@@ -179,6 +154,31 @@ Deno.serve(async (req) => {
           callConnected,
           firstResponseTime
         });
+
+        // Determine outcome based on screening completion
+        let outcome: 'pass' | 'fail' | 'incomplete';
+        const reasons: string[] = [];
+        
+        if (screeningCompleted) {
+          // Has evaluation data - determine pass/fail
+          if (typeof analysis.call_successful === 'boolean') {
+            outcome = analysis.call_successful ? 'pass' : 'fail';
+          } else {
+            outcome = score >= 60 ? 'pass' : 'fail';
+          }
+
+          // Extract reasons for failure
+          if (outcome === 'fail') {
+            reasons.push(...evaluationResults
+              .filter((r: any) => r.passed === false || r.result === 'fail')
+              .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed')
+            );
+          }
+        } else {
+          // No evaluation data - call connected but incomplete
+          outcome = 'incomplete';
+          reasons.push('Screening incomplete - candidate did not complete all questions');
+        }
 
         // Prepare update data
         const updateData = {
