@@ -8,13 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCaption,
@@ -39,9 +32,6 @@ export default function CandidateImport() {
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [previewData, setPreviewData] = useState<any[]>([]);
-  const [selectedRole, setSelectedRole] = useState<string>('');
-  const [roles, setRoles] = useState<any[]>([]);
-  const [hasRoleColumn, setHasRoleColumn] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
   const demoAPI = useDemoAPI();
@@ -62,7 +52,6 @@ export default function CandidateImport() {
           // Check if we have the minimum required fields
           const hasName = headers.some(h => h.toLowerCase().includes('name'));
           const hasPhone = headers.some(h => h.toLowerCase().includes('phone') || h.toLowerCase().includes('mobile'));
-          const hasRole = headers.some(h => h.toLowerCase().includes('role') || h.toLowerCase().includes('position') || h.toLowerCase().includes('job'));
           
           if (!hasName || !hasPhone) {
             toast({
@@ -75,30 +64,7 @@ export default function CandidateImport() {
             return;
           }
           
-          setHasRoleColumn(hasRole);
           setPreviewData(data.slice(0, 5));
-          
-          // Fetch roles for selection if no role column
-          if (!hasRole) {
-            try {
-              const rolesData = await demoAPI.getRoles();
-              setRoles(rolesData || []);
-              if (rolesData && rolesData.length === 0) {
-                toast({
-                  title: "No Roles Available",
-                  description: "Please create a role first before importing candidates",
-                  variant: "destructive"
-                });
-              }
-            } catch (error) {
-              console.error('Error fetching roles:', error);
-              toast({
-                title: "Error",
-                description: "Could not fetch roles",
-                variant: "destructive"
-              });
-            }
-          }
         }
         setIsProcessing(false);
       },
@@ -109,15 +75,6 @@ export default function CandidateImport() {
 
   const handleImport = async () => {
     if (!file) return;
-    
-    if (!hasRoleColumn && !selectedRole) {
-      toast({
-        title: "Role Required",
-        description: "Please select a role for screening",
-        variant: "destructive"
-      });
-      return;
-    }
 
     setIsProcessing(true);
     
@@ -127,20 +84,10 @@ export default function CandidateImport() {
           const data = result.data as any[];
           const candidates = [];
           const errors = [];
-          let roleMap: Record<string, string> = {};
-          
-          // If CSV has role column, fetch all roles to map titles to IDs
-          if (hasRoleColumn) {
-            const rolesData = await demoAPI.getRoles();
-            rolesData.forEach((role: any) => {
-              roleMap[role.title.toLowerCase()] = role.id;
-            });
-          }
           
           for (let i = 0; i < data.length; i++) {
             const row = data[i];
             const candidate: any = {};
-            let roleId = selectedRole;
             
             // Process each field
             Object.keys(row).forEach(key => {
@@ -158,7 +105,7 @@ export default function CandidateImport() {
                   errors.push(`Row ${i + 1}: Invalid phone number: ${value}`);
                 }
               } else if (keyLower.includes('email')) {
-                candidate.email = value || null; // Email is now optional
+                candidate.email = value || null;
               } else if (keyLower.includes('skill')) {
                 candidate.skills = value ? value.split(/[,;]/).map((s: string) => s.trim()) : [];
               } else if (keyLower.includes('exp') || keyLower.includes('year')) {
@@ -169,19 +116,11 @@ export default function CandidateImport() {
                 candidate.salaryExpectation = parseInt(value) || null;
               } else if (keyLower.includes('language')) {
                 candidate.language = value || 'en';
-              } else if (hasRoleColumn && (keyLower.includes('role') || keyLower.includes('position') || keyLower.includes('job'))) {
-                // Map role title to role ID
-                const roleTitle = value.toLowerCase();
-                roleId = roleMap[roleTitle];
-                if (!roleId) {
-                  errors.push(`Row ${i + 1}: Unknown role: ${value}`);
-                }
               }
             });
             
             // Only add if we have name and valid phone
             if (candidate.name && candidate.phone) {
-              candidate.roleId = roleId; // Attach role for screening
               candidates.push(candidate);
             }
           }
@@ -203,15 +142,15 @@ export default function CandidateImport() {
             return;
           }
           
-          // Import candidates - the API will automatically create screens if roleId is provided
-          await demoAPI.bulkImportCandidates(candidates);
+          // Create candidates only - no screening
+          await demoAPI.createCandidate(candidates);
           
           toast({
             title: 'Import Successful',
-            description: `Imported ${candidates.length} candidates and created screening sessions`,
+            description: `Imported ${candidates.length} candidates. Use bulk screening to start calls.`,
           });
           
-          // Navigate to screens page to show the newly created screens
+          // Navigate to screens page where they can initiate bulk screening
           navigate('/screens');
         } catch (error) {
           console.error('Import error:', error);
@@ -305,49 +244,23 @@ export default function CandidateImport() {
                 </ul>
                 <p className="mt-2 font-medium">Optional columns:</p>
                 <ul className="list-disc list-inside mt-1">
-                  <li>Role - Job title for automatic role assignment</li>
-                  <li>Email, Skills, Experience, Location, Salary</li>
+                  <li>Email, Skills, Experience, Location, Salary, Language</li>
                 </ul>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Preview and Role Selection */}
+        {/* Preview */}
         {file && previewData.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Preview & Configuration</CardTitle>
+              <CardTitle>Preview</CardTitle>
               <CardDescription>
-                Review candidates and {hasRoleColumn ? 'confirm import' : 'select screening role'}
+                Review candidates before importing
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Role Selection (if no role column in CSV) */}
-              {!hasRoleColumn && (
-                <div className="space-y-2">
-                  <Label>Select Role for All Candidates</Label>
-                  <Select value={selectedRole} onValueChange={setSelectedRole}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose a role for screening..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {roles.length > 0 ? (
-                        roles.map(role => (
-                          <SelectItem key={role.id} value={role.id}>
-                            {role.title} - {role.location}
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <div className="p-2 text-sm text-muted-foreground">
-                          No roles available. Create a role first.
-                        </div>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
               {/* Preview Table */}
               <div className="border rounded-lg overflow-hidden">
                 <Table>
@@ -375,7 +288,7 @@ export default function CandidateImport() {
               <div className="flex justify-end">
                 <Button 
                   onClick={handleImport}
-                  disabled={isProcessing || (!hasRoleColumn && !selectedRole)}
+                  disabled={isProcessing}
                   className="bg-gradient-primary border-0"
                 >
                   {isProcessing ? (
@@ -386,7 +299,7 @@ export default function CandidateImport() {
                   ) : (
                     <>
                       <Upload className="w-4 h-4 mr-2" />
-                      Import & Create Screens
+                      Import Candidates
                     </>
                   )}
                 </Button>
