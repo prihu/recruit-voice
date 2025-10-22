@@ -266,12 +266,6 @@ export default function Screens() {
               <Users className="w-4 h-4 mr-2" />
               Bulk Screening
             </Button>
-            <Link to="/roles">
-              <Button variant="outline">
-                <Phone className="w-4 h-4 mr-2" />
-                Individual Screen
-              </Button>
-            </Link>
           </div>
         </div>
 
