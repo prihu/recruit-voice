@@ -240,13 +240,21 @@ serve(async (req) => {
 
         if (!response.ok) {
           const error = await response.text();
-          console.error('ElevenLabs phone call API error:', error);
+          console.error('ElevenLabs phone call initiation failed:', {
+            status: response.status,
+            error,
+            screenId,
+            phoneNumber: firstPlaceholder
+          });
           
-          // Update screen status to failed
+          // Update screen status to failed with detailed error
           await supabase
             .from('screens')
             .update({ 
               status: 'failed',
+              summary: `Phone call failed (${response.status}): ${error.substring(0, 200)}`,
+              call_connected: false,
+              completed_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             })
             .eq('id', screenId);
@@ -257,11 +265,11 @@ serve(async (req) => {
         const data = await response.json();
         console.log('Phone call initiated successfully:', data);
 
-        // Store the phone conversation ID - use conversation_id field consistently
+        // Store the phone conversation ID in session_id field (matches database schema)
         const updateResult = await supabase
           .from('screens')
           .update({ 
-            conversation_id: data.conversation_id,
+            session_id: data.conversation_id,
             status: 'in_progress',
             started_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
@@ -269,9 +277,10 @@ serve(async (req) => {
           .eq('id', screenId);
         
         if (updateResult.error) {
-          console.error('Failed to update screen with phone conversation ID:', updateResult.error);
+          console.error('Failed to update screen with session_id:', updateResult.error);
+          console.error('Screen ID:', screenId, 'Conversation ID:', data.conversation_id);
         } else {
-          console.log('Updated screen with phone conversation ID:', data.conversation_id);
+          console.log('Updated screen with session_id:', data.conversation_id);
         }
 
         return new Response(
