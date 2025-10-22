@@ -40,7 +40,7 @@ import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { toast } from '@/hooks/use-toast';
 import { ExportDialog } from '@/components/ExportDialog';
 import { BulkScreeningModal } from '@/components/BulkScreeningModal';
-import { ScreeningQueue } from '@/components/ScreeningQueue';
+
 import { supabase } from '@/integrations/supabase/client';
 
 interface Screen {
@@ -451,14 +451,6 @@ export default function Screens() {
             )}
           </Card>
         )}
-        
-        {/* Screening Queue */}
-        <Card>
-          <div className="p-6">
-            <ScreeningQueue />
-          </div>
-        </Card>
-        
         {/* Export Dialog */}
         <ExportDialog 
           open={exportDialogOpen}
