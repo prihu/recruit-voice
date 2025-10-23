@@ -190,7 +190,8 @@ serve(async (req) => {
       }
 
       case 'initiate-phone-call': {
-        const { screenId, phoneNumber, agentId, candidateName } = await req.json();
+        const { screenId, phoneNumber, agentId, metadata } = await req.json();
+        const candidateName = metadata?.candidateName;
         
         console.log('Initiating phone call to:', phoneNumber, 'for screen:', screenId);
         
@@ -244,7 +245,7 @@ serve(async (req) => {
             status: response.status,
             error,
             screenId,
-            phoneNumber: firstPlaceholder
+            phoneNumber: phoneNumber?.substring(0, 4) + '***'
           });
           
           // Update screen status to failed with detailed error

@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Mic, MicOff, Phone, PhoneOff, Volume2, Loader2, AlertCircle, Settings } from 'lucide-react';
+import { Phone, Volume2, Loader2, AlertCircle, Settings } from 'lucide-react';
 import { useElevenLabsConversation } from '@/hooks/useElevenLabsConversation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -22,15 +22,8 @@ interface VoiceScreeningProps {
 export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceScreeningProps) {
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   
-  // Use real ElevenLabs conversation if agent is configured
+  // Use ElevenLabs conversation for status updates
   const {
-    startScreening,
-    stopScreening,
-    isLoading,
-    isActive,
-    transcript,
-    currentQuestion,
-    totalQuestions,
     isSpeaking,
     status
   } = useElevenLabsConversation({ screenId, role, candidate, onComplete });
@@ -110,16 +103,14 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
     }
   };
 
-  const progress = totalQuestions > 0 ? (currentQuestion / totalQuestions) * 100 : 0;
   const hasVoiceAgent = role.voice_agent_id && role.voice_enabled !== false;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Voice Screening Interview</CardTitle>
+        <CardTitle>Phone Screening Interview</CardTitle>
         <CardDescription>
-          {isActive ? `Question ${currentQuestion + 1} of ${totalQuestions}` : 
-           hasVoiceAgent ? 'AI-powered screening interview' : 'Voice agent configuration required'}
+          {hasVoiceAgent ? 'AI-powered phone screening' : 'Voice agent configuration required'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -128,7 +119,7 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
           <Alert className="border-warning">
             <AlertCircle className="h-4 w-4 text-warning" />
             <AlertDescription className="space-y-2">
-              <p>Voice agent is not configured for this role. Configure it to enable voice interviews.</p>
+              <p>Voice agent is not configured for this role. Configure it to enable phone screening.</p>
               <Link to={`/roles/${role.id}`}>
                 <Button variant="outline" size="sm" className="mt-2">
                   <Settings className="w-4 h-4 mr-2" />
@@ -138,21 +129,11 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
             </AlertDescription>
           </Alert>
         )}
-        {/* Progress Bar */}
-        {isActive && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Progress</span>
-              <span>{Math.round(progress)}%</span>
-            </div>
-            <Progress value={progress} />
-          </div>
-        )}
 
         {/* Status Indicators */}
         <div className="flex items-center gap-4">
           <Badge variant={status === 'connected' ? 'default' : 'secondary'}>
-            {status === 'connected' ? 'Connected' : isLoading ? 'Connecting...' : 'Ready'}
+            {status === 'connected' ? 'Connected' : 'Ready'}
           </Badge>
           {isSpeaking && (
             <Badge variant="outline" className="animate-pulse">
@@ -162,65 +143,25 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
           )}
         </div>
 
-        {/* Transcript */}
-        {transcript.length > 0 && (
-          <ScrollArea className="h-[300px] w-full rounded-md border p-4">
-            <div className="space-y-2">
-              {transcript.map((line, index) => (
-                <p key={index} className={`text-sm ${line.startsWith('AI:') ? 'text-primary' : 'text-foreground'}`}>
-                  {line}
-                </p>
-              ))}
-            </div>
-          </ScrollArea>
-        )}
-
         {/* Controls */}
         <div className="flex gap-2">
-          {!isActive ? (
-            <>
-              <Button 
-                onClick={startScreening} 
-                disabled={isLoading || !hasVoiceAgent} 
-                className="flex-1"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Preparing...
-                  </>
-                ) : (
-                  <>
-                    <Mic className="mr-2 h-4 w-4" />
-                    Start Web Interview
-                  </>
-                )}
-              </Button>
-              <Button 
-                onClick={initiatePhoneCall} 
-                disabled={isInitiatingCall || !candidate.phone || !hasVoiceAgent}
-                variant="outline"
-                className="flex-1"
-              >
-                {isInitiatingCall ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Calling...
-                  </>
-                ) : (
-                  <>
-                    <Phone className="mr-2 h-4 w-4" />
-                    Initiate Phone Call
-                  </>
-                )}
-              </Button>
-            </>
-          ) : (
-            <Button onClick={stopScreening} variant="destructive" className="w-full">
-              <MicOff className="mr-2 h-4 w-4" />
-              End Interview
-            </Button>
-          )}
+          <Button 
+            onClick={initiatePhoneCall} 
+            disabled={isInitiatingCall || !candidate.phone || !hasVoiceAgent}
+            className="w-full"
+          >
+            {isInitiatingCall ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Calling...
+              </>
+            ) : (
+              <>
+                <Phone className="mr-2 h-4 w-4" />
+                Initiate Phone Call
+              </>
+            )}
+          </Button>
         </div>
         
         {/* Phone Number Display */}
