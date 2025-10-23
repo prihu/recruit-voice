@@ -125,9 +125,62 @@ serve(async (req) => {
           }
           console.log('[WEBHOOK] evaluation_criteria_results shape:', Array.isArray(evalRaw) ? 'array' : typeof evalRaw, 'items:', evalArray.length);
 
-          // Store structured answers
+          // Transform to question-answer format + extract structured data
           if (evalArray.length > 0) {
-            updateData.answers = evalArray;
+            // Store raw evaluation array for backward compatibility
+            const evaluationResults = evalArray;
+            
+            // Fetch role to map criteria to questions
+            const roleId = customData?.role_id;
+            if (roleId) {
+              const { data: roleData } = await supabase
+                .from('roles')
+                .select('questions')
+                .eq('id', roleId)
+                .single();
+              
+              if (roleData?.questions) {
+                const questions = Array.isArray(roleData.questions) ? roleData.questions : [];
+                const answersMap: Record<string, any> = {};
+                
+                // Map evaluation criteria to question IDs
+                questions.forEach((q: any) => {
+                  const matchingEval = evalArray.find(e => 
+                    e.criteria?.toLowerCase().includes(q.text?.toLowerCase().substring(0, 20)) ||
+                    q.text?.toLowerCase().includes(e.criteria?.toLowerCase().substring(0, 20))
+                  );
+                  
+                  if (matchingEval) {
+                    answersMap[q.id] = {
+                      answer: matchingEval.reason || matchingEval.result,
+                      passed: matchingEval.passed,
+                      reason: matchingEval.reason
+                    };
+                  }
+                });
+                
+                updateData.answers = answersMap;
+              }
+            }
+            
+            // Extract structured data from transcript
+            const transcript = webhookData.transcript || [];
+            const extractedData: any = {
+              evaluation_results: evaluationResults
+            };
+            
+            // Extract basic candidate info from transcript if available
+            if (Array.isArray(transcript) && transcript.length > 0) {
+              const candidateMessages = transcript
+                .filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate')
+                .map((msg: any) => msg.text)
+                .join(' ');
+              
+              // Store for potential AI extraction later
+              extractedData.candidate_responses = candidateMessages;
+            }
+            
+            updateData.extracted_data = extractedData;
           }
 
           // Calculate score (0-100 based on criteria pass rate)

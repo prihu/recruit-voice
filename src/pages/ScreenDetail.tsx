@@ -565,46 +565,91 @@ export default function ScreenDetail() {
 
           {/* Analysis Tab */}
           <TabsContent value="reasons" className="space-y-4">
+            {/* AI Summary Card */}
+            {(screen as any).ai_summary && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="h-5 w-5" />
+                    AI Summary
+                  </CardTitle>
+                  <CardDescription>ElevenLabs AI analysis of the conversation</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="p-4 bg-muted rounded-lg">
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                      {(screen as any).ai_summary}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Evaluation Results Card */}
+            {screen.answers && typeof screen.answers === 'object' && Object.keys(screen.answers).length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Evaluation Criteria Results</CardTitle>
+                  <CardDescription>Detailed pass/fail breakdown</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {Object.entries(screen.answers).map(([questionId, answer]: [string, any]) => {
+                    const question = role.questions?.find(q => q.id === questionId);
+                    const passed = answer?.passed;
+                    
+                    return (
+                      <div key={questionId} className="p-3 border rounded-lg">
+                        <div className="flex items-start justify-between mb-2">
+                          <p className="font-medium text-sm flex-1">
+                            {question?.text || 'Unknown Question'}
+                          </p>
+                          {passed !== undefined && (
+                            passed ? (
+                              <Badge className="bg-success text-success-foreground">
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                Pass
+                              </Badge>
+                            ) : (
+                              <Badge variant="destructive">
+                                <XCircle className="w-3 h-3 mr-1" />
+                                Fail
+                              </Badge>
+                            )
+                          )}
+                        </div>
+                        {answer?.reason && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {answer.reason}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Key Findings Card */}
             <Card>
               <CardHeader>
-                <CardTitle>Screening Analysis</CardTitle>
-                <CardDescription>Detailed analysis and scoring breakdown</CardDescription>
+                <CardTitle>Key Findings</CardTitle>
+                <CardDescription>Issues and observations from the screening</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {screen.reasons && screen.reasons.length > 0 && (
+              <CardContent>
+                {screen.reasons && screen.reasons.length > 0 ? (
                   <div className="space-y-2">
-                    <h4 className="font-medium text-sm text-muted-foreground">Key Findings</h4>
                     {screen.reasons.map((reason, index) => (
-                      <div key={index} className="flex items-start gap-2">
-                        <CheckCircle className="w-4 h-4 text-success mt-0.5" />
+                      <div key={index} className="flex items-start gap-2 p-3 border rounded-lg">
+                        <AlertCircle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
                         <p className="text-sm">{reason}</p>
                       </div>
                     ))}
                   </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No issues identified
+                  </p>
                 )}
-
-                <Separator />
-
-                <div className="space-y-2">
-                  <h4 className="font-medium text-sm text-muted-foreground">Rule Evaluation</h4>
-                  {role.rules?.map((rule) => (
-                    <div key={rule.id} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium text-sm">{rule.name}</p>
-                        {rule.isRequired && (
-                          <Badge variant="outline" className="mt-1">Required</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Weight: {rule.weight}%</span>
-                        <Badge className="bg-success text-success-foreground">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Pass
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </CardContent>
             </Card>
           </TabsContent>

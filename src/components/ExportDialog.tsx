@@ -177,13 +177,59 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
   const exportToExcel = async (data: any[]) => {
     const wb = XLSX.utils.book_new();
     
-    // Main data sheet
+    // Main data sheet with fallbacks to available data
     const mainData = data.map(screen => {
       const row: any = {};
       selectedColumns.forEach(col => {
-        const value = screen.extracted_data?.[col] || screen[col];
+        let value;
+        
+        // Map fields with fallbacks
+        switch (col) {
+          case 'candidate_name':
+            value = screen.extracted_data?.candidate_name || screen.candidate?.name || '';
+            break;
+          case 'candidate_phone':
+            value = screen.candidate?.phone || '';
+            break;
+          case 'candidate_email':
+            value = screen.candidate?.email || '';
+            break;
+          case 'screening_score':
+            value = screen.score || 0;
+            break;
+          case 'screening_outcome':
+            value = screen.outcome || 'incomplete';
+            break;
+          case 'rejection_reasons':
+            value = Array.isArray(screen.reasons) ? screen.reasons.join('; ') : '';
+            break;
+          case 'call_duration_minutes':
+            value = screen.duration_seconds ? Math.round(screen.duration_seconds / 60) : 0;
+            break;
+          case 'questions_answered':
+            value = screen.questions_answered || 0;
+            break;
+          case 'ai_summary':
+            value = screen.ai_summary || '';
+            break;
+          case 'skills_primary':
+            value = Array.isArray(screen.candidate?.skills) ? screen.candidate.skills.join(', ') : '';
+            break;
+          case 'total_experience_years':
+            value = screen.candidate?.exp_years || '';
+            break;
+          case 'current_location':
+            value = screen.candidate?.location_pref || '';
+            break;
+          case 'expected_salary_min':
+            value = screen.candidate?.salary_expectation || '';
+            break;
+          default:
+            value = screen.extracted_data?.[col] || screen[col];
+        }
+        
         row[EXPORT_COLUMNS.find(c => c.id === col)?.label || col] = 
-          Array.isArray(value) ? value.join(', ') : value;
+          Array.isArray(value) ? value.join(', ') : value || '';
       });
       return row;
     });
@@ -204,14 +250,42 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
     
     // Transcripts sheet (if included)
     if (includeTranscript) {
-      const transcriptData = data.map(screen => ({
-        'Candidate': screen.candidate?.name || 'Unknown',
-        'Date': screen.created_at ? new Date(screen.created_at).toLocaleDateString() : '',
-        'Transcript': screen.transcript ? JSON.stringify(screen.transcript) : 'No transcript',
-      }));
+      const transcriptData = data.map(screen => {
+        let formattedTranscript = 'No transcript';
+        
+        if (screen.transcript && Array.isArray(screen.transcript) && screen.transcript.length > 0) {
+          formattedTranscript = screen.transcript
+            .map((entry: any) => `${entry.speaker || 'Unknown'}: ${entry.text}`)
+            .join('\n');
+        }
+        
+        return {
+          'Candidate': screen.candidate?.name || 'Unknown',
+          'Date': screen.created_at ? new Date(screen.created_at).toLocaleDateString() : '',
+          'Transcript': formattedTranscript,
+        };
+      });
       
       const transcriptWs = XLSX.utils.json_to_sheet(transcriptData);
       XLSX.utils.book_append_sheet(wb, transcriptWs, "Transcripts");
+    }
+    
+    // AI Analysis sheet (if included)
+    if (includeAIAnalysis) {
+      const analysisData = data
+        .filter(s => s.ai_summary)
+        .map(screen => ({
+          'Candidate': screen.candidate?.name || 'Unknown',
+          'Score': screen.score || 0,
+          'Outcome': screen.outcome || 'incomplete',
+          'AI Summary': screen.ai_summary || '',
+          'Issues': Array.isArray(screen.reasons) ? screen.reasons.join('; ') : '',
+        }));
+      
+      if (analysisData.length > 0) {
+        const analysisWs = XLSX.utils.json_to_sheet(analysisData);
+        XLSX.utils.book_append_sheet(wb, analysisWs, "AI Analysis");
+      }
     }
     
     // Download the file
@@ -223,19 +297,54 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
     const csvData = data.map(screen => {
       const row: any = {};
       selectedColumns.forEach(col => {
-        const value = screen.extracted_data?.[col] || screen[col];
-        row[col] = Array.isArray(value) ? value.join('; ') : value;
+        let value;
+        
+        // Map fields with fallbacks (same as Excel)
+        switch (col) {
+          case 'candidate_name':
+            value = screen.extracted_data?.candidate_name || screen.candidate?.name || '';
+            break;
+          case 'candidate_phone':
+            value = screen.candidate?.phone || '';
+            break;
+          case 'candidate_email':
+            value = screen.candidate?.email || '';
+            break;
+          case 'screening_score':
+            value = screen.score || 0;
+            break;
+          case 'screening_outcome':
+            value = screen.outcome || 'incomplete';
+            break;
+          case 'rejection_reasons':
+            value = Array.isArray(screen.reasons) ? screen.reasons.join('; ') : '';
+            break;
+          case 'call_duration_minutes':
+            value = screen.duration_seconds ? Math.round(screen.duration_seconds / 60) : 0;
+            break;
+          case 'ai_summary':
+            value = screen.ai_summary || '';
+            break;
+          case 'skills_primary':
+            value = Array.isArray(screen.candidate?.skills) ? screen.candidate.skills.join(', ') : '';
+            break;
+          default:
+            value = screen.extracted_data?.[col] || screen[col];
+        }
+        
+        row[col] = Array.isArray(value) ? value.join('; ') : value || '';
       });
       return row;
     });
 
-    const headers = selectedColumns.join(',');
+    const headers = selectedColumns.map(col => EXPORT_COLUMNS.find(c => c.id === col)?.label || col).join(',');
     const rows = csvData.map(row => 
       selectedColumns.map(col => {
         const value = row[col];
-        return typeof value === 'string' && value.includes(',') 
-          ? `"${value}"` 
-          : value || '';
+        const strValue = String(value || '');
+        return strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')
+          ? `"${strValue.replace(/"/g, '""')}"` 
+          : strValue;
       }).join(',')
     );
     
@@ -251,10 +360,62 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
 
   const exportToJSON = async (data: any[]) => {
     const jsonData = data.map(screen => {
-      const row: any = {};
+      const row: any = {
+        id: screen.id,
+        created_at: screen.created_at
+      };
+      
       selectedColumns.forEach(col => {
-        row[col] = screen.extracted_data?.[col] || screen[col];
+        let value;
+        
+        // Map fields with fallbacks (same as Excel)
+        switch (col) {
+          case 'candidate_name':
+            value = screen.extracted_data?.candidate_name || screen.candidate?.name;
+            break;
+          case 'candidate_phone':
+            value = screen.candidate?.phone;
+            break;
+          case 'candidate_email':
+            value = screen.candidate?.email;
+            break;
+          case 'screening_score':
+            value = screen.score;
+            break;
+          case 'screening_outcome':
+            value = screen.outcome;
+            break;
+          case 'rejection_reasons':
+            value = screen.reasons;
+            break;
+          case 'call_duration_minutes':
+            value = screen.duration_seconds ? Math.round(screen.duration_seconds / 60) : null;
+            break;
+          case 'ai_summary':
+            value = screen.ai_summary;
+            break;
+          case 'skills_primary':
+            value = screen.candidate?.skills;
+            break;
+          default:
+            value = screen.extracted_data?.[col] || screen[col];
+        }
+        
+        row[col] = value;
       });
+      
+      if (includeTranscript && screen.transcript) {
+        row.transcript = screen.transcript;
+      }
+      
+      if (includeAIAnalysis && screen.ai_summary) {
+        row.ai_analysis = {
+          summary: screen.ai_summary,
+          reasons: screen.reasons,
+          answers: screen.answers
+        };
+      }
+      
       return row;
     });
 
