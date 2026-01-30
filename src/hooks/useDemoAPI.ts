@@ -132,13 +132,22 @@ export function useDemoAPI() {
   };
 
   // Analytics operations
-  const getAnalytics = async (params?: { startDate?: string; endDate?: string; roleId?: string; includeDetails?: boolean }) => {
+  const getAnalytics = async (params?: { 
+    startDate?: string; 
+    endDate?: string; 
+    roleId?: string; 
+    includeDetails?: boolean;
+    limit?: number;
+    offset?: number;
+  }) => {
     if (DEMO_MODE) {
       const queryParams = new URLSearchParams();
       if (params?.startDate) queryParams.append('startDate', params.startDate);
       if (params?.endDate) queryParams.append('endDate', params.endDate);
       if (params?.roleId) queryParams.append('roleId', params.roleId);
       if (params?.includeDetails) queryParams.append('includeDetails', 'true');
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+      if (params?.offset) queryParams.append('offset', params.offset.toString());
       return fetchDemoAPI(`${DEMO_ENDPOINTS.analytics}?${queryParams}`);
     }
     // Original implementation would go here

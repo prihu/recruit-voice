@@ -11,6 +11,16 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -36,7 +46,8 @@ import {
   AlertCircle,
   CheckCircle,
   RefreshCw,
-  FileText
+  FileText,
+  CreditCard
 } from 'lucide-react';
 import { Role, ScreeningQuestion, FAQEntry } from '@/types';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
@@ -68,6 +79,7 @@ export default function RoleDetail() {
   const [agentStatus, setAgentStatus] = useState<'pending' | 'synced' | 'failed' | 'archived'>('pending');
   const [agentError, setAgentError] = useState<string | null>(null);
   const [creatingAgent, setCreatingAgent] = useState(false);
+  const [showAgentConfirmDialog, setShowAgentConfirmDialog] = useState(false);
   const [callWindow, setCallWindow] = useState({
     timezone: 'Asia/Kolkata',
     allowedHours: { start: '09:00', end: '17:00' },
@@ -223,7 +235,7 @@ export default function RoleDetail() {
     setFaq(faq.filter((_, i) => i !== index));
   };
 
-  const createOrUpdateAgent = async () => {
+  const handleAgentButtonClick = () => {
     if (!id || isNewRole) {
       toast({
         title: "Info",
@@ -231,7 +243,13 @@ export default function RoleDetail() {
       });
       return;
     }
+    
+    // Show confirmation dialog before creating/updating agent
+    setShowAgentConfirmDialog(true);
+  };
 
+  const createOrUpdateAgent = async () => {
+    setShowAgentConfirmDialog(false);
     setCreatingAgent(true);
     try {
       let data;
@@ -799,7 +817,7 @@ export default function RoleDetail() {
 
                 <div className="flex gap-2">
                   <Button
-                    onClick={createOrUpdateAgent}
+                    onClick={handleAgentButtonClick}
                     disabled={creatingAgent}
                     className="flex-1"
                   >
@@ -865,6 +883,43 @@ export default function RoleDetail() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Agent Creation Confirmation Dialog */}
+      <AlertDialog open={showAgentConfirmDialog} onOpenChange={setShowAgentConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-warning" />
+              {agentId ? 'Update Voice Agent' : 'Create Voice Agent'}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p>
+                {agentId 
+                  ? 'This will update your ElevenLabs voice agent configuration.'
+                  : 'This will create a new ElevenLabs voice agent for this role.'
+                }
+              </p>
+              <div className="bg-warning/10 border border-warning/30 rounded-md p-3 text-sm">
+                <p className="font-medium text-warning mb-1">API Credits Notice</p>
+                <ul className="list-disc list-inside text-muted-foreground space-y-1">
+                  <li>ElevenLabs agents use API credits for each call</li>
+                  <li>Estimated cost: ~$0.05-0.15 per minute of conversation</li>
+                  <li>Make sure your ElevenLabs account has sufficient credits</li>
+                </ul>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Do you want to proceed?
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={createOrUpdateAgent}>
+              {agentId ? 'Update Agent' : 'Create Agent'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }
