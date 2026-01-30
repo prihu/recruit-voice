@@ -79,7 +79,11 @@ export default function ScreenDetail() {
         conversation_turns: screenData.conversation_turns,
         candidate_responded: screenData.candidate_responded,
         call_connected: screenData.call_connected,
-        first_response_time_seconds: screenData.first_response_time_seconds
+        first_response_time_seconds: screenData.first_response_time_seconds,
+        session_id: screenData.session_id,
+        ai_summary: screenData.ai_summary,
+        duration_seconds: screenData.duration_seconds,
+        recording_url: screenData.recording_url
       };
 
       const transformedRole: Role = {
@@ -274,6 +278,43 @@ export default function ScreenDetail() {
                 <span className="text-muted-foreground">Attempts</span>
                 <span className="font-medium">{screen.attempts}/3</span>
               </div>
+              <Separator />
+              
+              {/* Call Details Section */}
+              <div className="space-y-2">
+                <span className="text-sm font-medium text-muted-foreground">Call Details</span>
+                {screen.session_id && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Conversation ID</span>
+                    <div className="flex items-center gap-2">
+                      <code className="bg-muted px-2 py-1 rounded text-xs font-mono max-w-[200px] truncate">
+                        {screen.session_id}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => {
+                          navigator.clipboard.writeText(screen.session_id || '');
+                          toast({
+                            title: "Copied",
+                            description: "Conversation ID copied to clipboard",
+                          });
+                        }}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {screen.duration_seconds !== undefined && screen.duration_seconds > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Duration</span>
+                    <span className="font-medium">{Math.round(screen.duration_seconds / 60)} min {screen.duration_seconds % 60} sec</span>
+                  </div>
+                )}
+              </div>
+              
               <Separator />
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">

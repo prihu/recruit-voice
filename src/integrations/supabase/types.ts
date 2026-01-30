@@ -720,26 +720,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      ensure_demo_org_for_user: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      get_user_organization_id: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
+      ensure_demo_org_for_user: { Args: never; Returns: string }
+      get_user_organization_id: { Args: never; Returns: string }
       increment_bulk_operation_count: {
         Args: { count_type: string; operation_id: string }
         Returns: undefined
       }
-      is_org_admin: {
-        Args: { _org_id: string }
-        Returns: boolean
-      }
-      is_org_member: {
-        Args: { _org_id: string }
-        Returns: boolean
-      }
+      is_org_admin: { Args: { _org_id: string }; Returns: boolean }
+      is_org_member: { Args: { _org_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

@@ -42,9 +42,11 @@ type ExportFormat = 'csv' | 'json' | 'excel' | 'pdf';
 type ExportTemplate = 'full' | 'executive' | 'technical' | 'hr' | 'comparison';
 
 const EXPORT_COLUMNS = [
+  { id: 'conversation_id', label: 'Conversation ID', category: 'metadata' },
   { id: 'candidate_name', label: 'Candidate Name', category: 'basic' },
   { id: 'candidate_phone', label: 'Phone Number', category: 'basic' },
   { id: 'candidate_email', label: 'Email', category: 'basic' },
+  { id: 'role_title', label: 'Role', category: 'basic' },
   { id: 'current_role', label: 'Current Role', category: 'professional' },
   { id: 'total_experience_years', label: 'Total Experience', category: 'professional' },
   { id: 'relevant_experience_years', label: 'Relevant Experience', category: 'professional' },
@@ -60,6 +62,7 @@ const EXPORT_COLUMNS = [
   { id: 'expected_salary_max', label: 'Expected Salary Max', category: 'compensation' },
   { id: 'screening_score', label: 'Screening Score', category: 'results' },
   { id: 'screening_outcome', label: 'Outcome', category: 'results' },
+  { id: 'answers', label: 'Answers', category: 'results' },
   { id: 'strengths', label: 'Strengths', category: 'results' },
   { id: 'areas_of_concern', label: 'Areas of Concern', category: 'results' },
   { id: 'rejection_reasons', label: 'Rejection Reasons', category: 'results' },
@@ -69,7 +72,8 @@ const EXPORT_COLUMNS = [
   { id: 'call_duration_minutes', label: 'Call Duration', category: 'metadata' },
   { id: 'questions_answered', label: 'Questions Answered', category: 'metadata' },
   { id: 'response_quality', label: 'Response Quality', category: 'metadata' },
-  { id: 'ai_summary', label: 'AI Summary', category: 'insights' },
+  { id: 'transcript', label: 'Transcript', category: 'insights' },
+  { id: 'analysis', label: 'Analysis', category: 'insights' },
   { id: 'ai_recommendation', label: 'AI Recommendation', category: 'insights' },
   { id: 'suggested_next_steps', label: 'Next Steps', category: 'insights' },
   { id: 'red_flags', label: 'Red Flags', category: 'insights' },
@@ -139,7 +143,17 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
         includeDetails: true
       });
 
-      const screenings = data.screenings || [];
+      // Support both 'screens' (from analytics API) and 'screenings' (legacy)
+      const screenings = data.screens || data.screenings || [];
+      
+      if (screenings.length === 0) {
+        toast({
+          title: "No Data",
+          description: "No screening records found for export",
+          variant: "destructive",
+        });
+        return;
+      }
 
       // Process the export based on format
       if (format === 'excel') {
@@ -177,6 +191,34 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
   const exportToExcel = async (data: any[]) => {
     const wb = XLSX.utils.book_new();
     
+    // Helper to format answers
+    const formatAnswers = (screen: any): string => {
+      if (!screen.answers) return '';
+      if (Array.isArray(screen.answers)) {
+        return screen.answers.map((a: any) => 
+          `${a.criteria || a.question}: ${a.passed ? 'Pass' : 'Fail'}${a.reason ? ` - ${a.reason}` : ''}`
+        ).join(' | ');
+      }
+      if (typeof screen.answers === 'object') {
+        return Object.entries(screen.answers).map(([key, val]: [string, any]) => {
+          if (typeof val === 'object' && val !== null) {
+            return `${key}: ${val.answer || val.passed ? 'Pass' : 'Fail'}${val.reason ? ` - ${val.reason}` : ''}`;
+          }
+          return `${key}: ${val}`;
+        }).join(' | ');
+      }
+      return String(screen.answers);
+    };
+
+    // Helper to format transcript
+    const formatTranscript = (screen: any): string => {
+      if (!screen.transcript || !Array.isArray(screen.transcript)) return '';
+      const text = screen.transcript
+        .map((entry: any) => `${entry.speaker || 'Unknown'}: ${entry.text}`)
+        .join(' | ');
+      return text.length > 5000 ? text.substring(0, 5000) + '...' : text;
+    };
+    
     // Main data sheet with fallbacks to available data
     const mainData = data.map(screen => {
       const row: any = {};
@@ -185,6 +227,9 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
         
         // Map fields with fallbacks
         switch (col) {
+          case 'conversation_id':
+            value = screen.session_id || '';
+            break;
           case 'candidate_name':
             value = screen.extracted_data?.candidate_name || screen.candidate?.name || '';
             break;
@@ -194,11 +239,23 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
           case 'candidate_email':
             value = screen.candidate?.email || '';
             break;
+          case 'role_title':
+            value = screen.role?.title || '';
+            break;
           case 'screening_score':
             value = screen.score || 0;
             break;
           case 'screening_outcome':
             value = screen.outcome || 'incomplete';
+            break;
+          case 'answers':
+            value = formatAnswers(screen);
+            break;
+          case 'transcript':
+            value = formatTranscript(screen);
+            break;
+          case 'analysis':
+            value = screen.ai_summary || '';
             break;
           case 'rejection_reasons':
             value = Array.isArray(screen.reasons) ? screen.reasons.join('; ') : '';
@@ -208,9 +265,6 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
             break;
           case 'questions_answered':
             value = screen.questions_answered || 0;
-            break;
-          case 'ai_summary':
-            value = screen.ai_summary || '';
             break;
           case 'skills_primary':
             value = Array.isArray(screen.candidate?.skills) ? screen.candidate.skills.join(', ') : '';
@@ -294,6 +348,34 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
   };
 
   const exportToCSV = async (data: any[]) => {
+    // Helper to format answers
+    const formatAnswers = (screen: any): string => {
+      if (!screen.answers) return '';
+      if (Array.isArray(screen.answers)) {
+        return screen.answers.map((a: any) => 
+          `${a.criteria || a.question}: ${a.passed ? 'Pass' : 'Fail'}${a.reason ? ` - ${a.reason}` : ''}`
+        ).join(' | ');
+      }
+      if (typeof screen.answers === 'object') {
+        return Object.entries(screen.answers).map(([key, val]: [string, any]) => {
+          if (typeof val === 'object' && val !== null) {
+            return `${key}: ${val.answer || val.passed ? 'Pass' : 'Fail'}${val.reason ? ` - ${val.reason}` : ''}`;
+          }
+          return `${key}: ${val}`;
+        }).join(' | ');
+      }
+      return String(screen.answers);
+    };
+
+    // Helper to format transcript
+    const formatTranscript = (screen: any): string => {
+      if (!screen.transcript || !Array.isArray(screen.transcript)) return '';
+      const text = screen.transcript
+        .map((entry: any) => `${entry.speaker || 'Unknown'}: ${entry.text}`)
+        .join(' | ');
+      return text.length > 5000 ? text.substring(0, 5000) + '...' : text;
+    };
+    
     const csvData = data.map(screen => {
       const row: any = {};
       selectedColumns.forEach(col => {
@@ -301,6 +383,9 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
         
         // Map fields with fallbacks (same as Excel)
         switch (col) {
+          case 'conversation_id':
+            value = screen.session_id || '';
+            break;
           case 'candidate_name':
             value = screen.extracted_data?.candidate_name || screen.candidate?.name || '';
             break;
@@ -310,20 +395,29 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
           case 'candidate_email':
             value = screen.candidate?.email || '';
             break;
+          case 'role_title':
+            value = screen.role?.title || '';
+            break;
           case 'screening_score':
             value = screen.score || 0;
             break;
           case 'screening_outcome':
             value = screen.outcome || 'incomplete';
             break;
+          case 'answers':
+            value = formatAnswers(screen);
+            break;
+          case 'transcript':
+            value = formatTranscript(screen);
+            break;
+          case 'analysis':
+            value = screen.ai_summary || '';
+            break;
           case 'rejection_reasons':
             value = Array.isArray(screen.reasons) ? screen.reasons.join('; ') : '';
             break;
           case 'call_duration_minutes':
             value = screen.duration_seconds ? Math.round(screen.duration_seconds / 60) : 0;
-            break;
-          case 'ai_summary':
-            value = screen.ai_summary || '';
             break;
           case 'skills_primary':
             value = Array.isArray(screen.candidate?.skills) ? screen.candidate.skills.join(', ') : '';
@@ -362,6 +456,7 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
     const jsonData = data.map(screen => {
       const row: any = {
         id: screen.id,
+        conversation_id: screen.session_id,
         created_at: screen.created_at
       };
       
@@ -370,6 +465,9 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
         
         // Map fields with fallbacks (same as Excel)
         switch (col) {
+          case 'conversation_id':
+            value = screen.session_id;
+            break;
           case 'candidate_name':
             value = screen.extracted_data?.candidate_name || screen.candidate?.name;
             break;
@@ -379,20 +477,29 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
           case 'candidate_email':
             value = screen.candidate?.email;
             break;
+          case 'role_title':
+            value = screen.role?.title;
+            break;
           case 'screening_score':
             value = screen.score;
             break;
           case 'screening_outcome':
             value = screen.outcome;
             break;
+          case 'answers':
+            value = screen.answers;
+            break;
+          case 'transcript':
+            value = screen.transcript;
+            break;
+          case 'analysis':
+            value = screen.ai_summary;
+            break;
           case 'rejection_reasons':
             value = screen.reasons;
             break;
           case 'call_duration_minutes':
             value = screen.duration_seconds ? Math.round(screen.duration_seconds / 60) : null;
-            break;
-          case 'ai_summary':
-            value = screen.ai_summary;
             break;
           case 'skills_primary':
             value = screen.candidate?.skills;

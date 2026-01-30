@@ -107,6 +107,11 @@ export interface Screen {
   candidate_responded?: boolean;
   call_connected?: boolean;
   first_response_time_seconds?: number | null;
+  // Session/Conversation tracking
+  session_id?: string;
+  ai_summary?: string;
+  duration_seconds?: number;
+  recording_url?: string;
 }
 
 export interface TranscriptEntry {
