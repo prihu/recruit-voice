@@ -240,7 +240,7 @@ export default function Settings() {
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">Webhook URL</span>
                 <code className="text-xs bg-muted px-2 py-1 rounded">
-                  {window.location.origin}/functions/v1/elevenlabs-voice/phone-webhook
+                  https://yfuroouzxmxlvkwsmtny.supabase.co/functions/v1/elevenlabs-webhook
                 </code>
               </div>
             </div>

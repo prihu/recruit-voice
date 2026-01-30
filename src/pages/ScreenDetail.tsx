@@ -190,6 +190,8 @@ export default function ScreenDetail() {
         return <Badge className="bg-red-600 text-white hover:bg-red-600/80"><XCircle className="w-4 h-4 mr-1" />Fail</Badge>;
       case 'incomplete':
         return <Badge className="bg-yellow-600 text-white hover:bg-yellow-600/80"><AlertCircle className="w-4 h-4 mr-1" />Incomplete</Badge>;
+      case 'needs_review':
+        return <Badge className="bg-orange-500 text-white hover:bg-orange-500/80"><AlertCircle className="w-4 h-4 mr-1" />Needs Review</Badge>;
       default:
         return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
     }
