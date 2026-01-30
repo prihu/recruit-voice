@@ -153,6 +153,7 @@ export default function Screens() {
   const stats = {
     total: screens.length,
     inProgress: screens.filter(s => s.status === 'in_progress').length,
+    needsReview: screens.filter(s => s.outcome === 'needs_review').length,
     passRate: screens.filter(s => s.outcome === 'pass').length / screens.filter(s => s.outcome).length * 100 || 0,
     avgScore: screens.reduce((acc, s) => acc + (s.score || 0), 0) / screens.filter(s => s.score).length || 0
   };
@@ -202,6 +203,8 @@ export default function Screens() {
         return <Badge className="bg-red-600 text-white hover:bg-red-600/80">Fail</Badge>;
       case 'incomplete':
         return <Badge className="bg-yellow-600 text-white hover:bg-yellow-600/80">Incomplete</Badge>;
+      case 'needs_review':
+        return <Badge className="bg-orange-500 text-white hover:bg-orange-500/80">Needs Review</Badge>;
       default:
         return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
     }
@@ -283,10 +286,10 @@ export default function Screens() {
           <Card className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">In Progress</p>
-                <p className="text-2xl font-bold">{stats.inProgress}</p>
+                <p className="text-sm text-muted-foreground">Needs Review</p>
+                <p className="text-2xl font-bold">{stats.needsReview}</p>
               </div>
-              <PlayCircle className="w-8 h-8 text-warning" />
+              <AlertCircle className="w-8 h-8 text-orange-500" />
             </div>
           </Card>
           <Card className="p-4">
@@ -349,6 +352,7 @@ export default function Screens() {
               <SelectItem value="pass">Pass</SelectItem>
               <SelectItem value="fail">Fail</SelectItem>
               <SelectItem value="incomplete">Incomplete</SelectItem>
+              <SelectItem value="needs_review">Needs Review</SelectItem>
             </SelectContent>
           </Select>
         </div>

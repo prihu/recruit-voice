@@ -66,9 +66,10 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
           agentId: role.voice_agent_id,
           phoneNumber: phoneValidation.formatted,
           screenId,
-          candidateId: candidate.id,
+          organizationId: role.organization_id,
           metadata: {
             candidateName: candidate.name,
+            candidateId: candidate.id,
             roleTitle: role.title,
             roleId: role.id
           }

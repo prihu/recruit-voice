@@ -227,21 +227,40 @@ serve(async (req) => {
             firstResponseTime
           });
 
-          // Determine outcome based on screening completion
+          // Determine outcome based on screening completion with Human Review support
           if (screeningCompleted) {
-            // Has evaluation data - determine pass/fail
-            if (typeof analysis.call_successful === 'boolean') {
-              updateData.outcome = analysis.call_successful ? 'pass' : 'fail';
-            } else if (updateData.score !== undefined) {
-              updateData.outcome = (updateData.score as number) >= 60 ? 'pass' : 'fail';
-            }
-
-            // Extract failure reasons if any
-            const reasons = evalArray
-              .filter(r => r.passed === false || r.result === 'fail')
-              .map(r => r.reason || r.criteria || 'Unknown criteria failed');
-            if (reasons.length > 0) {
-              updateData.reasons = reasons;
+            const score = updateData.score as number;
+            
+            // Check for low confidence items that should trigger review
+            const lowConfidenceItems = evalArray.filter(r => 
+              r.confidence !== undefined && r.confidence < 0.7
+            );
+            const hasLowConfidence = lowConfidenceItems.length > evalArray.length * 0.3;
+            
+            // Three-tier outcome logic:
+            // - Score 80-100: Auto pass
+            // - Score 60-79: Needs human review (ambiguous zone)
+            // - Score 0-59: Auto fail
+            // - Low confidence on >30% of criteria: Needs human review
+            if (hasLowConfidence) {
+              updateData.outcome = 'needs_review';
+              updateData.reasons = ['Low confidence on multiple evaluation criteria - requires human review'];
+              console.log('[WEBHOOK] Low confidence detected - flagged for human review');
+            } else if (score >= 80) {
+              updateData.outcome = 'pass';
+            } else if (score >= 60) {
+              updateData.outcome = 'needs_review';
+              updateData.reasons = ['Score in ambiguous range (60-79) - requires human review'];
+              console.log('[WEBHOOK] Ambiguous score - flagged for human review');
+            } else {
+              updateData.outcome = 'fail';
+              // Extract failure reasons
+              const reasons = evalArray
+                .filter(r => r.passed === false || r.result === 'fail')
+                .map(r => r.reason || r.criteria || 'Unknown criteria failed');
+              if (reasons.length > 0) {
+                updateData.reasons = reasons;
+              }
             }
           } else {
             // No evaluation data - call connected but incomplete

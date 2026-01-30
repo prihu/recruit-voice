@@ -190,7 +190,7 @@ serve(async (req) => {
       }
 
       case 'initiate-phone-call': {
-        const { screenId, phoneNumber, agentId, metadata } = await req.json();
+        const { screenId, phoneNumber, agentId, metadata, organizationId } = await req.json();
         const candidateName = metadata?.candidateName;
         
         console.log('Initiating phone call to:', phoneNumber, 'for screen:', screenId);
@@ -209,6 +209,37 @@ serve(async (req) => {
           );
         }
 
+        // Fetch organization's Twilio configuration for agent_phone_number_id
+        let agentPhoneNumberId: string | null = null;
+        
+        if (organizationId) {
+          const { data: org, error: orgError } = await supabase
+            .from('organizations')
+            .select('twilio_config')
+            .eq('id', organizationId)
+            .single();
+          
+          if (orgError) {
+            console.error('Failed to fetch organization config:', orgError);
+          } else {
+            const twilioConfig = org?.twilio_config as { agent_phone_number_id?: string } | null;
+            agentPhoneNumberId = twilioConfig?.agent_phone_number_id || null;
+          }
+        }
+
+        if (!agentPhoneNumberId) {
+          console.error('Missing agent_phone_number_id in organization config');
+          return new Response(
+            JSON.stringify({ 
+              error: 'Phone number not configured. Please configure your ElevenLabs phone number in Settings.' 
+            }),
+            { 
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+            }
+          );
+        }
+
         // Update screen status to in_progress
         await supabase
           .from('screens')
@@ -219,9 +250,9 @@ serve(async (req) => {
           })
           .eq('id', screenId);
 
-        // Initiate phone call via ElevenLabs
+        // Initiate phone call via ElevenLabs Twilio API (same as bulk calls)
         const response = await fetch(
-          'https://api.elevenlabs.io/v1/convai/conversations/phone-call',
+          'https://api.elevenlabs.io/v1/convai/twilio/outbound-call',
           {
             method: 'POST',
             headers: {
@@ -230,11 +261,20 @@ serve(async (req) => {
             },
             body: JSON.stringify({
               agent_id: agentId,
-              customer: {
-                number: phoneNumber,
-                name: candidateName,
-              },
-              webhook_url: `${SUPABASE_URL}/functions/v1/elevenlabs-voice/phone-webhook`,
+              agent_phone_number_id: agentPhoneNumberId,
+              to_number: phoneNumber,
+              webhook_url: `${SUPABASE_URL}/functions/v1/elevenlabs-webhook`,
+              conversation_initiation_client_data: {
+                dynamic_variables: {
+                  candidate_name: candidateName,
+                },
+                custom_data: {
+                  screen_id: screenId,
+                  candidate_id: metadata?.candidateId,
+                  role_id: metadata?.roleId,
+                  organization_id: organizationId
+                }
+              }
             }),
           }
         );
@@ -253,7 +293,7 @@ serve(async (req) => {
             .from('screens')
             .update({ 
               status: 'failed',
-              summary: `Phone call failed (${response.status}): ${error.substring(0, 200)}`,
+              ai_summary: `Phone call failed (${response.status}): ${error.substring(0, 200)}`,
               call_connected: false,
               completed_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
@@ -263,7 +303,12 @@ serve(async (req) => {
           throw new Error(`Failed to initiate phone call: ${error}`);
         }
 
-        const data = await response.json();
+        const data = await response.json() as {
+          success: boolean;
+          message: string;
+          conversation_id: string | null;
+          callSid: string | null;
+        };
         console.log('Phone call initiated successfully:', data);
 
         // Store the phone conversation ID in session_id field (matches database schema)
@@ -288,7 +333,7 @@ serve(async (req) => {
           JSON.stringify({ 
             success: true,
             conversationId: data.conversation_id,
-            callId: data.call_id
+            callId: data.callSid
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );

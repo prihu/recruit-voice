@@ -155,20 +155,35 @@ Deno.serve(async (req) => {
           firstResponseTime
         });
 
-        // Determine outcome based on screening completion
-        let outcome: 'pass' | 'fail' | 'incomplete';
+        // Determine outcome based on screening completion with Human Review support
+        let outcome: 'pass' | 'fail' | 'incomplete' | 'needs_review';
         const reasons: string[] = [];
         
         if (screeningCompleted) {
-          // Has evaluation data - determine pass/fail
-          if (typeof analysis.call_successful === 'boolean') {
-            outcome = analysis.call_successful ? 'pass' : 'fail';
+          // Check for low confidence items that should trigger review
+          const lowConfidenceItems = evaluationResults.filter((r: any) => 
+            r.confidence !== undefined && r.confidence < 0.7
+          );
+          const hasLowConfidence = lowConfidenceItems.length > evaluationResults.length * 0.3;
+          
+          // Three-tier outcome logic:
+          // - Score 80-100: Auto pass
+          // - Score 60-79: Needs human review (ambiguous zone)
+          // - Score 0-59: Auto fail
+          // - Low confidence on >30% of criteria: Needs human review
+          if (hasLowConfidence) {
+            outcome = 'needs_review';
+            reasons.push('Low confidence on multiple evaluation criteria - requires human review');
+            console.log(`[RECOVER] Low confidence detected for screen ${screen.id} - flagged for human review`);
+          } else if (score >= 80) {
+            outcome = 'pass';
+          } else if (score >= 60) {
+            outcome = 'needs_review';
+            reasons.push('Score in ambiguous range (60-79) - requires human review');
+            console.log(`[RECOVER] Ambiguous score for screen ${screen.id} - flagged for human review`);
           } else {
-            outcome = score >= 60 ? 'pass' : 'fail';
-          }
-
-          // Extract reasons for failure
-          if (outcome === 'fail') {
+            outcome = 'fail';
+            // Extract reasons for failure
             reasons.push(...evaluationResults
               .filter((r: any) => r.passed === false || r.result === 'fail')
               .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed')

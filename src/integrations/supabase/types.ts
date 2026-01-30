@@ -246,6 +246,7 @@ export type Database = {
           email: string | null
           exp_years: number | null
           external_id: string | null
+          first_interview_at: string | null
           id: string
           language: string | null
           location_pref: string | null
@@ -263,6 +264,7 @@ export type Database = {
           email?: string | null
           exp_years?: number | null
           external_id?: string | null
+          first_interview_at?: string | null
           id?: string
           language?: string | null
           location_pref?: string | null
@@ -280,6 +282,7 @@ export type Database = {
           email?: string | null
           exp_years?: number | null
           external_id?: string | null
+          first_interview_at?: string | null
           id?: string
           language?: string | null
           location_pref?: string | null
