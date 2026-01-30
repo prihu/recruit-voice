@@ -2,7 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
-import { Download, TrendingUp, Users, Phone, CheckCircle } from "lucide-react";
+import { Download, TrendingUp, Users, Phone, CheckCircle, Clock, AlertTriangle } from "lucide-react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useDemoAPI } from "@/hooks/useDemoAPI";
 
@@ -23,6 +23,7 @@ interface AnalyticsData {
     avg_score: number;
     avg_duration_seconds: number;
     avg_attempts: number;
+    avg_time_to_first_interview_hours?: number;
   };
   by_language: Record<string, number>;
   by_location: Record<string, number>;
@@ -31,6 +32,7 @@ interface AnalyticsData {
     this_week: number;
     this_month: number;
   };
+  needs_review_count?: number;
 }
 
 const normalizeAnalytics = (raw: any): AnalyticsData => {
@@ -73,6 +75,7 @@ const normalizeAnalytics = (raw: any): AnalyticsData => {
       avg_score: performanceSrc.avg_score ?? performanceSrc.averageScore ?? 0,
       avg_duration_seconds: performanceSrc.avg_duration_seconds ?? performanceSrc.averageDuration ?? 0,
       avg_attempts: performanceSrc.avg_attempts ?? performanceSrc.averageAttempts ?? 0,
+      avg_time_to_first_interview_hours: performanceSrc.avg_time_to_first_interview_hours ?? performanceSrc.avgTimeToFirstInterview ?? null,
     },
     by_language: raw.by_language ?? raw.languageDistribution ?? {},
     by_location: raw.by_location ?? raw.locationDistribution ?? {},
@@ -81,6 +84,7 @@ const normalizeAnalytics = (raw: any): AnalyticsData => {
       this_week: timelineSrc.this_week ?? timelineSrc.thisWeek ?? 0,
       this_month: timelineSrc.this_month ?? timelineSrc.thisMonth ?? 0,
     },
+    needs_review_count: raw.needs_review_count ?? (raw.by_outcome?.needs_review ?? 0),
   };
 };
 
@@ -141,10 +145,20 @@ export function EnhancedAnalyticsDashboard() {
 
   const totalScreenings = analytics.summary.total_screenings || 1; // Prevent division by zero
 
+  // Calculate time saved (estimated 15 min per traditional phone screen)
+  const timeSavedHours = Math.round((analytics.summary.total_screenings * 15) / 60);
+  
+  // Calculate time to first interview (if available, else estimate)
+  const avgTimeToInterview = analytics.performance_metrics.avg_time_to_first_interview_hours;
+  const traditionalTimeToInterview = 72; // Industry benchmark: 3 days
+  const timeReductionPercent = avgTimeToInterview 
+    ? Math.round(((traditionalTimeToInterview - avgTimeToInterview) / traditionalTimeToInterview) * 100)
+    : null;
+
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Screenings</CardTitle>
@@ -177,15 +191,30 @@ export function EnhancedAnalyticsDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg. Score</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Needs Review</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-warning" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {analytics.performance_metrics.avg_score.toFixed(1)}%
+            <div className="text-2xl font-bold text-warning">
+              {analytics.needs_review_count || 0}
             </div>
             <p className="text-xs text-muted-foreground">
-              Performance metric
+              Awaiting human review
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Time Saved</CardTitle>
+            <Clock className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-primary">
+              {timeSavedHours}h
+            </div>
+            <p className="text-xs text-muted-foreground">
+              vs. manual screening
             </p>
           </CardContent>
         </Card>
@@ -207,6 +236,56 @@ export function EnhancedAnalyticsDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Time to First Interview Card */}
+      {(timeReductionPercent !== null || timeSavedHours > 0) && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Efficiency Metrics
+            </CardTitle>
+            <CardDescription>
+              Impact of AI-powered phone screening on your hiring process
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-6">
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">Recruiter Hours Saved</div>
+                <div className="text-3xl font-bold text-primary">{timeSavedHours}h</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Based on 15 min per manual screen
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">Avg. Score</div>
+                <div className="text-3xl font-bold">{analytics.performance_metrics.avg_score.toFixed(1)}%</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Across all screenings
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-muted-foreground mb-1">
+                  {avgTimeToInterview ? 'Time-to-First-Interview' : 'Avg. Call Duration'}
+                </div>
+                <div className="text-3xl font-bold">
+                  {avgTimeToInterview 
+                    ? `${Math.round(avgTimeToInterview)}h`
+                    : `${Math.round(analytics.performance_metrics.avg_duration_seconds / 60)}m`
+                  }
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {timeReductionPercent !== null 
+                    ? `${timeReductionPercent}% faster than industry avg`
+                    : 'Average screening duration'
+                  }
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Response Quality Chart */}
       <Card>

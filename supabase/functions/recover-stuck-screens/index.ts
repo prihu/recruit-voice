@@ -5,6 +5,84 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Prompt injection detection patterns
+const INJECTION_PATTERNS = [
+  /ignore\s+(previous|prior|above|all)\s+(instructions?|prompts?|commands?)/i,
+  /ignore\s+what\s+(you|they)\s+said/i,
+  /forget\s+(everything|all|your)\s+(you|instructions?)/i,
+  /you\s+are\s+now\s+a/i,
+  /pretend\s+(you\s+are|to\s+be)/i,
+  /act\s+as\s+(if|a|an)/i,
+  /disregard\s+(all|your|previous)/i,
+  /override\s+(your|the)\s+(instructions?|programming)/i,
+  /new\s+instructions?:/i,
+  /system\s*prompt:/i,
+  /jailbreak/i,
+  /do\s+not\s+follow\s+(your|the)\s+rules/i,
+  /bypass\s+(your|the|security)/i,
+];
+
+// Salary/role manipulation patterns
+const MANIPULATION_PATTERNS = [
+  /the\s+salary\s+(is|should\s+be|was)\s+actually/i,
+  /change\s+(the|my)\s+(role|position|salary)/i,
+  /mark\s+(me|this)\s+as\s+(passed?|hired|approved)/i,
+  /give\s+(me|this)\s+a\s+(passing|perfect)\s+score/i,
+  /automatically\s+(pass|approve|hire)/i,
+  /set\s+(my|the)\s+score\s+to/i,
+];
+
+interface SecurityFlags {
+  injection_detected: boolean;
+  manipulation_detected: boolean;
+  patterns_matched: string[];
+  risk_level: 'low' | 'medium' | 'high';
+}
+
+function detectSecurityIssues(transcript: any[]): SecurityFlags {
+  const flags: SecurityFlags = {
+    injection_detected: false,
+    manipulation_detected: false,
+    patterns_matched: [],
+    risk_level: 'low'
+  };
+
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    return flags;
+  }
+
+  // Only check candidate/user messages
+  const candidateMessages = transcript
+    .filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate')
+    .map((msg: any) => msg.text || '')
+    .join(' ');
+
+  // Check for injection patterns
+  for (const pattern of INJECTION_PATTERNS) {
+    if (pattern.test(candidateMessages)) {
+      flags.injection_detected = true;
+      flags.patterns_matched.push(pattern.source);
+    }
+  }
+
+  // Check for manipulation patterns
+  for (const pattern of MANIPULATION_PATTERNS) {
+    if (pattern.test(candidateMessages)) {
+      flags.manipulation_detected = true;
+      flags.patterns_matched.push(pattern.source);
+    }
+  }
+
+  // Determine risk level
+  if (flags.injection_detected && flags.manipulation_detected) {
+    flags.risk_level = 'high';
+  } else if (flags.injection_detected || flags.manipulation_detected) {
+    flags.risk_level = 'medium';
+  }
+
+  return flags;
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -155,6 +233,18 @@ Deno.serve(async (req) => {
           firstResponseTime
         });
 
+        // Detect security issues in transcript
+        const securityFlags = detectSecurityIssues(transcript);
+        
+        // Build extracted data with security flags
+        const extractedData: any = {
+          evaluation_results: evaluationResults
+        };
+        if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+          extractedData.security_flags = securityFlags;
+          console.log(`[RECOVER] Security flags detected for screen ${screen.id}:`, securityFlags);
+        }
+
         // Determine outcome based on screening completion with Human Review support
         let outcome: 'pass' | 'fail' | 'incomplete' | 'needs_review';
         const reasons: string[] = [];
@@ -166,12 +256,20 @@ Deno.serve(async (req) => {
           );
           const hasLowConfidence = lowConfidenceItems.length > evaluationResults.length * 0.3;
           
-          // Three-tier outcome logic:
+          // Check for security flags
+          const hasSecurityFlags = securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium';
+          
+          // Three-tier outcome logic with security check:
+          // - Security flags: Needs human review
           // - Score 80-100: Auto pass
           // - Score 60-79: Needs human review (ambiguous zone)
           // - Score 0-59: Auto fail
           // - Low confidence on >30% of criteria: Needs human review
-          if (hasLowConfidence) {
+          if (hasSecurityFlags) {
+            outcome = 'needs_review';
+            reasons.push('Security flags detected - potential prompt manipulation, requires human review');
+            console.log(`[RECOVER] Security flags for screen ${screen.id} - flagged for human review`);
+          } else if (hasLowConfidence) {
             outcome = 'needs_review';
             reasons.push('Low confidence on multiple evaluation criteria - requires human review');
             console.log(`[RECOVER] Low confidence detected for screen ${screen.id} - flagged for human review`);
@@ -196,7 +294,7 @@ Deno.serve(async (req) => {
         }
 
         // Prepare update data
-        const updateData = {
+        const updateData: any = {
           status: 'completed',
           completed_at: new Date().toISOString(),
           transcript: transcript.length > 0 ? transcript : null,
@@ -211,6 +309,7 @@ Deno.serve(async (req) => {
           candidate_responded: candidateResponded,
           call_connected: callConnected,
           first_response_time_seconds: firstResponseTime,
+          extracted_data: extractedData,
         };
 
         // Update the screen

@@ -37,6 +37,84 @@ interface ElevenLabsWebhookPayload {
   };
 }
 
+// Prompt injection detection patterns
+const INJECTION_PATTERNS = [
+  /ignore\s+(previous|prior|above|all)\s+(instructions?|prompts?|commands?)/i,
+  /ignore\s+what\s+(you|they)\s+said/i,
+  /forget\s+(everything|all|your)\s+(you|instructions?)/i,
+  /you\s+are\s+now\s+a/i,
+  /pretend\s+(you\s+are|to\s+be)/i,
+  /act\s+as\s+(if|a|an)/i,
+  /disregard\s+(all|your|previous)/i,
+  /override\s+(your|the)\s+(instructions?|programming)/i,
+  /new\s+instructions?:/i,
+  /system\s*prompt:/i,
+  /jailbreak/i,
+  /do\s+not\s+follow\s+(your|the)\s+rules/i,
+  /bypass\s+(your|the|security)/i,
+];
+
+// Salary/role manipulation patterns
+const MANIPULATION_PATTERNS = [
+  /the\s+salary\s+(is|should\s+be|was)\s+actually/i,
+  /change\s+(the|my)\s+(role|position|salary)/i,
+  /mark\s+(me|this)\s+as\s+(passed?|hired|approved)/i,
+  /give\s+(me|this)\s+a\s+(passing|perfect)\s+score/i,
+  /automatically\s+(pass|approve|hire)/i,
+  /set\s+(my|the)\s+score\s+to/i,
+];
+
+interface SecurityFlags {
+  injection_detected: boolean;
+  manipulation_detected: boolean;
+  patterns_matched: string[];
+  risk_level: 'low' | 'medium' | 'high';
+}
+
+function detectSecurityIssues(transcript: any[]): SecurityFlags {
+  const flags: SecurityFlags = {
+    injection_detected: false,
+    manipulation_detected: false,
+    patterns_matched: [],
+    risk_level: 'low'
+  };
+
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    return flags;
+  }
+
+  // Only check candidate/user messages
+  const candidateMessages = transcript
+    .filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate')
+    .map((msg: any) => msg.text || '')
+    .join(' ');
+
+  // Check for injection patterns
+  for (const pattern of INJECTION_PATTERNS) {
+    if (pattern.test(candidateMessages)) {
+      flags.injection_detected = true;
+      flags.patterns_matched.push(pattern.source);
+    }
+  }
+
+  // Check for manipulation patterns
+  for (const pattern of MANIPULATION_PATTERNS) {
+    if (pattern.test(candidateMessages)) {
+      flags.manipulation_detected = true;
+      flags.patterns_matched.push(pattern.source);
+    }
+  }
+
+  // Determine risk level
+  if (flags.injection_detected && flags.manipulation_detected) {
+    flags.risk_level = 'high';
+  } else if (flags.injection_detected || flags.manipulation_detected) {
+    flags.risk_level = 'medium';
+  }
+
+  return flags;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -180,6 +258,13 @@ serve(async (req) => {
               extractedData.candidate_responses = candidateMessages;
             }
             
+            // Run security detection on transcript
+            const securityFlags = detectSecurityIssues(transcript);
+            if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+              extractedData.security_flags = securityFlags;
+              console.log('[WEBHOOK] Security flags detected:', securityFlags);
+            }
+            
             updateData.extracted_data = extractedData;
           }
 
@@ -237,12 +322,21 @@ serve(async (req) => {
             );
             const hasLowConfidence = lowConfidenceItems.length > evalArray.length * 0.3;
             
+            // Check for security flags that require human review
+            const hasSecurityFlags = updateData.extracted_data?.security_flags?.risk_level === 'high' ||
+                                      updateData.extracted_data?.security_flags?.risk_level === 'medium';
+            
             // Three-tier outcome logic:
-            // - Score 80-100: Auto pass
+            // - Score 80-100: Auto pass (unless security flags)
             // - Score 60-79: Needs human review (ambiguous zone)
             // - Score 0-59: Auto fail
             // - Low confidence on >30% of criteria: Needs human review
-            if (hasLowConfidence) {
+            // - Security flags detected: Needs human review
+            if (hasSecurityFlags) {
+              updateData.outcome = 'needs_review';
+              updateData.reasons = ['Security flags detected - potential prompt manipulation, requires human review'];
+              console.log('[WEBHOOK] Security flags detected - flagged for human review');
+            } else if (hasLowConfidence) {
               updateData.outcome = 'needs_review';
               updateData.reasons = ['Low confidence on multiple evaluation criteria - requires human review'];
               console.log('[WEBHOOK] Low confidence detected - flagged for human review');

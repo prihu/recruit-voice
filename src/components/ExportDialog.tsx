@@ -136,17 +136,51 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
     setExporting(true);
     
     try {
-      // Fetch analytics data with export details
-      const data = await demoAPI.getAnalytics({
-        startDate: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
-        endDate: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
-        includeDetails: true
+      // Fetch analytics data with export details - with pagination for large datasets
+      const BATCH_SIZE = 500;
+      let allScreenings: any[] = [];
+      let offset = 0;
+      let hasMore = true;
+      
+      toast({
+        title: "Preparing Export",
+        description: "Fetching screening records...",
       });
 
-      // Support both 'screens' (from analytics API) and 'screenings' (legacy)
-      const screenings = data.screens || data.screenings || [];
+      // Paginated fetch to handle large datasets
+      while (hasMore) {
+        const data = await demoAPI.getAnalytics({
+          startDate: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
+          endDate: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
+          includeDetails: true,
+          limit: BATCH_SIZE,
+          offset: offset
+        });
+
+        // Support both 'screens' (from analytics API) and 'screenings' (legacy)
+        const batch = data.screens || data.screenings || [];
+        allScreenings = [...allScreenings, ...batch];
+        
+        // Check if we need more data
+        if (batch.length < BATCH_SIZE) {
+          hasMore = false;
+        } else {
+          offset += BATCH_SIZE;
+          // Update progress
+          toast({
+            title: "Preparing Export",
+            description: `Fetched ${allScreenings.length} records...`,
+          });
+        }
+        
+        // Safety limit to prevent infinite loops
+        if (offset > 10000) {
+          hasMore = false;
+          console.warn('Export reached maximum record limit (10000)');
+        }
+      }
       
-      if (screenings.length === 0) {
+      if (allScreenings.length === 0) {
         toast({
           title: "No Data",
           description: "No screening records found for export",
@@ -157,11 +191,11 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
 
       // Process the export based on format
       if (format === 'excel') {
-        await exportToExcel(screenings);
+        await exportToExcel(allScreenings);
       } else if (format === 'csv') {
-        await exportToCSV(screenings);
+        await exportToCSV(allScreenings);
       } else if (format === 'json') {
-        await exportToJSON(screenings);
+        await exportToJSON(allScreenings);
       } else if (format === 'pdf') {
         // PDF export would require additional library
         toast({
@@ -172,7 +206,7 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
 
       toast({
         title: "Export Successful",
-        description: `Exported ${screenings.length} screening records`,
+        description: `Exported ${allScreenings.length} screening records`,
       });
       
       onOpenChange(false);
@@ -180,7 +214,7 @@ export function ExportDialog({ open, onOpenChange, screenCount, filters }: Expor
       console.error('Export error:', error);
       toast({
         title: "Export Failed",
-        description: error.message,
+        description: error.message || "Failed to export records",
         variant: "destructive",
       });
     } finally {
