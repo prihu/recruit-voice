@@ -78,7 +78,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   ];
 
   const isActive = (href: string) => {
-    if (href === '/') return location.pathname === '/';
+    if (href === '/dashboard') return location.pathname === '/dashboard';
     return location.pathname.startsWith(href);
   };
 
@@ -87,7 +87,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Header */}
       <header className="sticky top-0 z-50 glass border-b">
         <div className="flex h-16 items-center px-4 gap-4">
-          <Link to="/" className="flex items-center gap-2">
+          <Link to="/dashboard" className="flex items-center gap-2">
             <div className="w-8 h-8 bg-gradient-primary rounded-lg flex items-center justify-center">
               <Phone className="w-5 h-5 text-primary-foreground" />
             </div>

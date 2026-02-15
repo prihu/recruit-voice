@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Index from "./pages/Index";
+import Dashboard from "./pages/Dashboard";
 import Roles from "./pages/Roles";
 import RoleDetail from "./pages/RoleDetail";
 import CandidateImport from "./pages/CandidateImport";
@@ -26,7 +27,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Navigate to="/" replace />} />
-      <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+      <Route path="/" element={<Index />} />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/roles" element={<ProtectedRoute><Roles /></ProtectedRoute>} />
       <Route path="/roles/:id" element={<ProtectedRoute><RoleDetail /></ProtectedRoute>} />
       <Route path="/candidates/import" element={<ProtectedRoute><CandidateImport /></ProtectedRoute>} />
