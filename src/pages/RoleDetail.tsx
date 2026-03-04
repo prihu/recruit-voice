@@ -79,6 +79,9 @@ export default function RoleDetail() {
   const [agentId, setAgentId] = useState<string | null>(null);
   const [agentStatus, setAgentStatus] = useState<'pending' | 'synced' | 'failed' | 'archived'>('pending');
   const [agentError, setAgentError] = useState<string | null>(null);
+  const [kbJdDocId, setKbJdDocId] = useState<string | null>(null);
+  const [kbFaqDocId, setKbFaqDocId] = useState<string | null>(null);
+  const [toolSaveAnswerId, setToolSaveAnswerId] = useState<string | null>(null);
   const [creatingAgent, setCreatingAgent] = useState(false);
   const [showAgentConfirmDialog, setShowAgentConfirmDialog] = useState(false);
   const [callWindow, setCallWindow] = useState({
@@ -116,6 +119,9 @@ export default function RoleDetail() {
       setAgentId(role.voice_agent_id || null);
       setAgentStatus((role.agent_sync_status || 'pending') as 'pending' | 'synced' | 'failed' | 'archived');
       setAgentError(role.agent_error_message || null);
+      setKbJdDocId(role.kb_jd_doc_id || null);
+      setKbFaqDocId(role.kb_faq_doc_id || null);
+      setToolSaveAnswerId(role.tool_save_answer_id || null);
       setCallWindow((role.call_window as any) || callWindow);
     } catch (error) {
       console.error('Error fetching role:', error);
@@ -269,7 +275,7 @@ export default function RoleDetail() {
       }
       
       if (data?.success) {
-        setAgentId(data.agentId);
+        setAgentId(data.agentId || agentId);
         setAgentStatus('synced');
         setAgentError(null);
         toast({
@@ -277,8 +283,15 @@ export default function RoleDetail() {
           description: data.message || (agentId ? "Agent updated successfully" : "Agent created successfully"),
         });
         
-        // Agent ID is already updated in the database by the edge function
-        // No need for additional updateAgentConfig call
+        // Re-fetch role to get updated KB doc IDs and tool ID
+        try {
+          const updatedRole = await demoAPI.getRole(id!);
+          setKbJdDocId(updatedRole.kb_jd_doc_id || null);
+          setKbFaqDocId(updatedRole.kb_faq_doc_id || null);
+          setToolSaveAnswerId(updatedRole.tool_save_answer_id || null);
+        } catch (e) {
+          console.error('Failed to refresh role after agent sync:', e);
+        }
       }
     } catch (error: any) {
       console.error('Error with agent:', error);
@@ -890,6 +903,43 @@ export default function RoleDetail() {
                         <span className="text-muted-foreground">FAQs:</span>
                         <span>{faq.length}</span>
                       </div>
+                    </div>
+
+                    {/* KB & Tool Status */}
+                    <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
+                      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Integrations</span>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge 
+                          variant="outline" 
+                          className={kbJdDocId 
+                            ? 'border-success/50 bg-success/10 text-success' 
+                            : 'border-muted-foreground/30 text-muted-foreground'}
+                        >
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${kbJdDocId ? 'bg-success' : 'bg-muted-foreground/50'}`} />
+                          KB: Job Description
+                        </Badge>
+                        <Badge 
+                          variant="outline" 
+                          className={kbFaqDocId 
+                            ? 'border-success/50 bg-success/10 text-success' 
+                            : 'border-muted-foreground/30 text-muted-foreground'}
+                        >
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${kbFaqDocId ? 'bg-success' : 'bg-muted-foreground/50'}`} />
+                          KB: FAQs
+                        </Badge>
+                        <Badge 
+                          variant="outline" 
+                          className={toolSaveAnswerId 
+                            ? 'border-success/50 bg-success/10 text-success' 
+                            : 'border-muted-foreground/30 text-muted-foreground'}
+                        >
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${toolSaveAnswerId ? 'bg-success' : 'bg-muted-foreground/50'}`} />
+                          Tool: Answer Capture
+                        </Badge>
+                      </div>
+                      {!kbJdDocId && !kbFaqDocId && !toolSaveAnswerId && (
+                        <p className="text-xs text-muted-foreground">Click "Update Agent" to sync KB documents and tools.</p>
+                      )}
                     </div>
                   </div>
                 )}
