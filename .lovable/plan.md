@@ -1,59 +1,90 @@
 
 
-# Fix: Extract Company Name from JD Instead of Organization Table
+# Restructure Agent Config to Use ElevenLabs Native Features
 
-## Problem
+## Current Problem
 
-The ElevenLabs agent prompt always says "Demo Company" because it reads `organization.name` from the `organizations` table, which is set to "Demo Company" (since this is a demo/platform account). The actual company name (e.g., "Unicommerce eSolutions Pvt. Ltd.") exists inside the JD text pasted into the role's `summary` field, but is never extracted or used.
+Everything — JD content, FAQs, screening questions, evaluation criteria, call settings — is crammed into a single massive system prompt (~3000+ chars). This is inefficient because:
+- The LLM has to parse through irrelevant content (FAQs, JD details) even when answering simple questions
+- No structured data collection — answers are extracted post-call by a separate `extract-structured-data` function re-processing the transcript
+- Knowledge base content (FAQs, JD) pollutes the behavioral instructions
 
-## Root Cause
+## Solution: Use 3 ElevenLabs Native Features
 
-In `generateAgentConfig()`, every reference to the company uses `${organization.name}` which resolves to "Demo Company". The JD in `role.summary` contains the real company name but there's no field on the `roles` table to store it separately.
+### 1. Knowledge Base API — for FAQs and JD content
 
-## Solution
+**What changes**: Instead of embedding FAQs and JD summary in the prompt, upload them as Knowledge Base documents via the ElevenLabs API, then reference their IDs in the agent config.
 
-### 1. Add `company_name` column to `roles` table
+**Flow**:
+1. When creating/updating an agent, first call `POST /v1/convai/knowledge-base/documents/create-from-text` to create KB documents:
+   - **Document 1**: JD content (role summary, responsibilities, skills, location, salary)
+   - **Document 2**: FAQs (all Q&A pairs formatted as text)
+2. Store the returned document IDs on the `roles` table (new columns: `kb_jd_doc_id`, `kb_faq_doc_id`)
+3. Reference these IDs in the agent config under `conversation_config.agent.prompt.knowledge_base`
 
-Add a nullable `company_name` text field to the `roles` table. This lets recruiters specify which company the role is for (since the platform may screen for multiple client companies).
+**Benefit**: ElevenLabs uses RAG to retrieve relevant KB chunks only when needed, rather than the LLM processing the entire JD/FAQ text on every turn.
 
-### 2. Add Company Name input to the Role creation/edit UI
+### 2. Tools API — for structured answer collection
 
-In the role's Overview tab (`RoleDetail.tsx`), add a "Company Name" text field. This is the simplest and most reliable approach — rather than trying to auto-extract from unstructured JD text.
+**What changes**: Create a server tool that the agent calls after each screening question to save the candidate's structured response in real-time, rather than extracting everything post-call.
 
-### 3. Update `generateAgentConfig()` to use role's company name
+**Flow**:
+1. Create a new edge function `elevenlabs-tool-save-answer` that accepts: `{ question_index, question_text, candidate_answer, answer_quality }`
+2. Register this as a server tool via `POST /v1/convai/tools` and store the tool ID
+3. Reference the tool ID in the agent config under `conversation_config.agent.prompt.tool_ids`
+4. The system prompt instructs the agent to call this tool after each question is answered
 
-In `demo-api-agent-manager/index.ts` and `agent-manager/index.ts`:
-- Use `role.company_name || organization.name` everywhere `organization.name` currently appears
-- This means: if the role has a company name, use it; otherwise fall back to the org name
+**Benefit**: Real-time structured data capture during the call. No need for expensive post-call transcript reprocessing.
 
-### 4. Update `first_message` template
+### 3. Slimmed-down System Prompt — behavior only
 
-Change:
+**What changes**: The prompt now contains ONLY:
+- Personality and tone instructions
+- Goal structure (interview flow)
+- Guardrails
+- Screening questions list (kept in prompt since it drives conversation flow)
+- Evaluation criteria (kept in prompt since it guides behavior)
+
+FAQs and JD content are removed from the prompt — they live in the Knowledge Base.
+
+## Database Changes
+
+New columns on `roles` table:
+```sql
+ALTER TABLE public.roles 
+  ADD COLUMN kb_jd_doc_id text,
+  ADD COLUMN kb_faq_doc_id text,
+  ADD COLUMN tool_save_answer_id text;
 ```
-"...screening call from ${organization.name}..."
-```
-To:
-```
-"...screening call from ${role.company_name || organization.name}..."
-```
-
-Same for the prompt's Personality, Environment, and Goal sections.
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| Migration SQL | Add `company_name` column to `roles` |
-| `src/pages/RoleDetail.tsx` | Add Company Name input field in Overview tab |
-| `supabase/functions/demo-api-agent-manager/index.ts` | Use `role.company_name \|\| organization.name` in `generateAgentConfig()` |
-| `supabase/functions/agent-manager/index.ts` | Same change |
+| Migration SQL | Add `kb_jd_doc_id`, `kb_faq_doc_id`, `tool_save_answer_id` columns to `roles` |
+| `supabase/functions/elevenlabs-tool-save-answer/index.ts` | **New** — edge function that receives structured answers from the ElevenLabs tool call and saves to DB |
+| `supabase/functions/demo-api-agent-manager/index.ts` | Refactor `generateAgentConfig` + add KB document creation + tool registration logic |
+| `supabase/functions/agent-manager/index.ts` | Same refactor for production path |
+| `src/integrations/supabase/types.ts` | Auto-updated with new columns |
 
-## ElevenLabs Features Usage
+## Architecture
 
-Regarding your question about using ElevenLabs features properly beyond just the prompt — this plan focuses on the immediate "Demo Company" bug. A separate follow-up can restructure the agent config to use:
-- **Knowledge Base API** for JD content and FAQs (instead of stuffing them in the prompt)
-- **Tools** for structured data collection during the call
-- **Post-call analysis** for scoring
+```text
+BEFORE:
+  Prompt = Personality + JD + FAQs + Questions + Rules + Settings
+  Post-call: extract-structured-data re-reads entire transcript
 
-That would be a larger refactor and is best done as a separate task.
+AFTER:
+  Prompt = Personality + Questions + Rules (behavior only)
+  Knowledge Base = JD doc + FAQ doc (RAG retrieval)
+  Tool = save_answer webhook (real-time structured capture)
+  Post-call: extract-structured-data still runs for scoring/summary
+```
+
+## Key Implementation Details
+
+- **KB document lifecycle**: When a role's JD or FAQs change, delete old KB docs and create new ones before updating the agent
+- **Tool creation**: The `save_answer` tool is created once per workspace (not per role) and reused across agents via `tool_ids`
+- **Backward compatibility**: If KB doc IDs are null, the system falls back to embedding content in the prompt (for existing agents)
+- **The `extract-structured-data` function stays**: It still handles post-call scoring, AI summary, and outcome determination — the tool just pre-populates raw answers
 
