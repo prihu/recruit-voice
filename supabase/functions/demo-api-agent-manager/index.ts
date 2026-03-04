@@ -14,7 +14,7 @@ const DEMO_USER_ID = '59dc7810-80b7-4a31-806a-bb0533526fab';
 
 async function createKBDocument(apiKey: string, name: string, content: string): Promise<string | null> {
   try {
-    const response = await fetch('https://api.elevenlabs.io/v1/convai/knowledge-base/documents/create-from-text', {
+    const response = await fetch('https://api.elevenlabs.io/v1/convai/knowledge-base/text', {
       method: 'POST',
       headers: {
         'xi-api-key': apiKey,
@@ -36,7 +36,7 @@ async function createKBDocument(apiKey: string, name: string, content: string): 
 
 async function deleteKBDocument(apiKey: string, docId: string): Promise<void> {
   try {
-    await fetch(`https://api.elevenlabs.io/v1/convai/knowledge-base/documents/${docId}`, {
+    await fetch(`https://api.elevenlabs.io/v1/convai/knowledge-base/${docId}`, {
       method: 'DELETE',
       headers: { 'xi-api-key': apiKey },
     });
@@ -65,7 +65,7 @@ function buildFAQContent(faq: any[]): string {
 async function ensureSaveAnswerTool(apiKey: string, supabaseUrl: string): Promise<string | null> {
   try {
     const toolUrl = `${supabaseUrl}/functions/v1/elevenlabs-tool-save-answer`;
-    const response = await fetch('https://api.elevenlabs.io/v1/convai/agents/tools', {
+    const response = await fetch('https://api.elevenlabs.io/v1/convai/tools', {
       method: 'POST',
       headers: {
         'xi-api-key': apiKey,
@@ -232,9 +232,9 @@ After each screening question is answered, call the save_screening_answer tool w
   if (kbDocIds.jdDocId) knowledgeBase.push(kbDocIds.jdDocId);
   if (kbDocIds.faqDocId) knowledgeBase.push(kbDocIds.faqDocId);
 
-  // Build tools references
-  const tools: any[] = [];
-  if (toolId) tools.push({ tool_id: toolId });
+   // Build tool_ids references
+  const toolIds: string[] = [];
+  if (toolId) toolIds.push(toolId);
 
   const config: any = {
     name: `${role.title} - ${companyName}`,
@@ -243,7 +243,7 @@ After each screening question is answered, call the save_screening_answer tool w
         prompt: {
           prompt: prompt,
           ...(knowledgeBase.length > 0 ? { knowledge_base: knowledgeBase } : {}),
-          ...(tools.length > 0 ? { tools: tools } : {}),
+          ...(toolIds.length > 0 ? { tool_ids: toolIds } : {}),
         },
         first_message: firstMessage,
         language: "en",
