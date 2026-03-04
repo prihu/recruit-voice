@@ -1,56 +1,31 @@
 
 
-# Fix ElevenLabs KB and Tool API Endpoints
+# Deduplicate Candidates in Bulk Screening Modal
 
-## Problem Found
+## Problem
+The candidate list in the Bulk Screening modal shows duplicate entries (same name + phone appearing multiple times), likely from repeated CSV imports.
 
-The edge function logs show two clear errors when syncing the agent:
-```
-Failed to create KB doc: {"detail":"Not Found"}
-Failed to create tool: {"detail":"Method Not Allowed"}
-```
+## Solution
+Add client-side deduplication in `fetchCandidates` inside `BulkScreeningModal.tsx`. Dedupe by **phone number** (primary unique identifier for screening calls) — if two candidates share the same phone, keep only the first (most recently updated or first encountered).
 
-The agent prompt itself updates correctly (shows "Unicommerce"), but KB documents and the server tool are never created because the API endpoints are wrong.
+## Change
 
-## Root Causes
+**File: `src/components/BulkScreeningModal.tsx`**
 
-| Feature | Current (Wrong) Endpoint | Correct Endpoint |
-|---------|--------------------------|-------------------|
-| KB create | `POST /v1/convai/knowledge-base/documents/create-from-text` | `POST /v1/convai/knowledge-base/text` |
-| KB delete | `DELETE /v1/convai/knowledge-base/documents/{id}` | `DELETE /v1/convai/knowledge-base/{id}` |
-| Tool create | `POST /v1/convai/agents/tools` | `POST /v1/convai/tools` |
+In `fetchCandidates`, after fetching candidates, deduplicate by phone number before setting state:
 
-Additionally, the tool reference format in the agent config uses `tools: [{ tool_id }]` under `prompt`, but per ElevenLabs' deprecation notice, it should use `tool_ids: [id]` under `prompt`.
-
-## Changes
-
-### 1. Fix KB endpoints in both agent-manager files
-
-- `createKBDocument`: Change URL to `https://api.elevenlabs.io/v1/convai/knowledge-base/text`
-- `deleteKBDocument`: Change URL to `https://api.elevenlabs.io/v1/convai/knowledge-base/{docId}`
-
-### 2. Fix Tool endpoint in both agent-manager files
-
-- `ensureSaveAnswerTool`: Change URL to `https://api.elevenlabs.io/v1/convai/tools`
-
-### 3. Fix tool reference format in `generateAgentConfig`
-
-Change from:
-```js
-tools: [{ tool_id: toolId }]
-```
-To:
-```js
-tool_ids: [toolId]
+```typescript
+const candidatesData = await demoAPI.getCandidates();
+// Deduplicate by phone number (keep first occurrence)
+const seen = new Set<string>();
+const uniqueCandidates = candidatesData.filter((candidate: any) => {
+  const phone = candidate.phone?.replace(/\s+/g, '');
+  if (!phone || seen.has(phone)) return false;
+  seen.add(phone);
+  return true;
+});
+setCandidates(uniqueCandidates);
 ```
 
-### Files Changed
+This normalizes phone numbers (strips whitespace) and keeps only the first candidate per unique phone, eliminating duplicates from repeated imports.
 
-| File | Change |
-|------|--------|
-| `supabase/functions/demo-api-agent-manager/index.ts` | Fix 3 API URLs + tool_ids format |
-| `supabase/functions/agent-manager/index.ts` | Same fixes |
-
-### Verification
-
-After deploying, re-sync the agent and check edge function logs to confirm KB docs and tool are created successfully.
