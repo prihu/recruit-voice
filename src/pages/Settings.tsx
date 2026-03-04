@@ -36,13 +36,35 @@ export default function Settings() {
     setIsSavingPhone(true);
     
     try {
+      // Validate the phone number ID with ElevenLabs before saving
+      const validateResponse = await fetch('https://yfuroouzxmxlvkwsmtny.supabase.co/functions/v1/demo-api-agent-manager', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'validate-phone-number',
+          phoneNumberId: agentPhoneNumberId
+        }),
+      });
+      
+      const validateData = await validateResponse.json();
+      
+      if (!validateResponse.ok || !validateData.valid) {
+        toast({
+          title: "Invalid Phone Number ID",
+          description: validateData.error || `The phone number ID "${agentPhoneNumberId}" was not found in your ElevenLabs account. Please check the ID and try again.`,
+          variant: "destructive"
+        });
+        setIsSavingPhone(false);
+        return;
+      }
+
       await demoAPI.updateOrganizationConfig({
         agent_phone_number_id: agentPhoneNumberId
       });
 
       toast({
         title: "✅ Configuration Saved",
-        description: "ElevenLabs phone number configured successfully",
+        description: "ElevenLabs phone number validated and configured successfully",
       });
     } catch (error) {
       console.error('Error saving Twilio config:', error);

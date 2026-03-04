@@ -47,23 +47,25 @@ async function ensureDemoSetup(supabase: any) {
       });
   }
 
-  // Ensure organization exists with default Twilio config
-  const { error: orgError } = await supabase
+  // Ensure organization exists — but do NOT overwrite twilio_config if org already exists
+  const { data: existingOrg } = await supabase
     .from('organizations')
-    .upsert({
-      id: DEMO_ORG_ID,
-      name: 'Demo Company',
-      company_domain: 'demo.recruiterscreen.ai',
-      twilio_config: {
-        agent_phone_number_id: 'phnum_1901k3x6cncte3h8m2zfkk8wz4jq'
-      }
-    }, {
-      onConflict: 'id',
-      ignoreDuplicates: false
-    });
+    .select('id')
+    .eq('id', DEMO_ORG_ID)
+    .single();
 
-  if (orgError) {
-    console.error('Error upserting organization:', orgError);
+  if (!existingOrg) {
+    const { error: orgError } = await supabase
+      .from('organizations')
+      .insert({
+        id: DEMO_ORG_ID,
+        name: 'Demo Company',
+        company_domain: 'demo.recruiterscreen.ai',
+      });
+
+    if (orgError) {
+      console.error('Error inserting organization:', orgError);
+    }
   }
   
   return DEMO_USER_ID;
