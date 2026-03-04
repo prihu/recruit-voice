@@ -497,6 +497,7 @@ export default function ScreenDetail() {
               screenId={screen.id}
               role={role}
               candidate={candidate}
+              screenStatus={screen.status}
               onComplete={handleVoiceScreeningComplete}
             />
           </TabsContent>

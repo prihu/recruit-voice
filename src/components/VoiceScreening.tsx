@@ -14,12 +14,13 @@ import { Badge } from '@/components/ui/badge';
 
 interface VoiceScreeningProps {
   screenId: string;
-  role: any; // Using any to match the hook interface
+  role: any;
   candidate: any;
+  screenStatus?: string;
   onComplete?: (data: any) => void;
 }
 
-export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceScreeningProps) {
+export function VoiceScreening({ screenId, role, candidate, screenStatus, onComplete }: VoiceScreeningProps) {
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   
   // Use ElevenLabs conversation for status updates
@@ -145,30 +146,36 @@ export function VoiceScreening({ screenId, role, candidate, onComplete }: VoiceS
         </div>
 
         {/* Controls */}
-        <div className="flex gap-2">
-          <Button 
-            onClick={initiatePhoneCall} 
-            disabled={isInitiatingCall || !candidate.phone || !hasVoiceAgent}
-            className="w-full"
-          >
-            {isInitiatingCall ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Calling...
-              </>
-            ) : (
-              <>
-                <Phone className="mr-2 h-4 w-4" />
-                Initiate Phone Call
-              </>
+        {screenStatus === 'failed' ? (
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Button 
+                onClick={initiatePhoneCall} 
+                disabled={isInitiatingCall || !candidate.phone || !hasVoiceAgent}
+                className="w-full"
+              >
+                {isInitiatingCall ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Retrying...
+                  </>
+                ) : (
+                  <>
+                    <Phone className="mr-2 h-4 w-4" />
+                    Retry Call
+                  </>
+                )}
+              </Button>
+            </div>
+            {candidate.phone && (
+              <div className="text-sm text-muted-foreground text-center">
+                Candidate Phone: {candidate.phone}
+              </div>
             )}
-          </Button>
-        </div>
-        
-        {/* Phone Number Display */}
-        {candidate.phone && (
-          <div className="text-sm text-muted-foreground text-center">
-            Candidate Phone: {candidate.phone}
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">
+            Phone calls are initiated via bulk screening. Use the bulk screening feature from the role page to call candidates.
           </div>
         )}
       </CardContent>
