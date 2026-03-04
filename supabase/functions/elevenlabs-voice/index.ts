@@ -240,6 +240,43 @@ serve(async (req) => {
           );
         }
 
+        // Preflight: validate the phone number ID exists in ElevenLabs
+        console.log('Validating agent_phone_number_id:', agentPhoneNumberId);
+        const validateResponse = await fetch(
+          `https://api.elevenlabs.io/v1/convai/twilio/phone-numbers/${agentPhoneNumberId}`,
+          {
+            method: 'GET',
+            headers: { 'xi-api-key': ELEVENLABS_API_KEY },
+          }
+        );
+
+        if (!validateResponse.ok) {
+          const validateError = await validateResponse.text();
+          console.error('Phone number ID validation failed:', validateResponse.status, validateError);
+          
+          await supabase
+            .from('screens')
+            .update({
+              status: 'failed',
+              ai_summary: `Invalid phone number ID: "${agentPhoneNumberId}" was not found in ElevenLabs. Please update the phone number ID in Settings.`,
+              call_connected: false,
+              completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', screenId);
+
+          return new Response(
+            JSON.stringify({
+              error: `Phone number ID "${agentPhoneNumberId}" not found in ElevenLabs. Please go to Settings and update your phone number ID.`
+            }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            }
+          );
+        }
+        console.log('Phone number ID validated successfully');
+
         // Update screen status to in_progress
         await supabase
           .from('screens')

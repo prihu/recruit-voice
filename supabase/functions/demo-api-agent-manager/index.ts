@@ -333,7 +333,8 @@ serve(async (req) => {
   }
 
   try {
-    const { action, roleId, agentId, updates } = await req.json();
+    const body = await req.json();
+    const { action, roleId, agentId, updates, phoneNumberId } = body;
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -341,6 +342,39 @@ serve(async (req) => {
     const elevenLabsApiKey = Deno.env.get('ELEVENLABS_API_KEY') || '';
 
     switch (action) {
+      case 'validate-phone-number': {
+        if (!phoneNumberId) {
+          return new Response(JSON.stringify({ valid: false, error: 'Phone number ID is required' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 400,
+          });
+        }
+
+        try {
+          const validateRes = await fetch(
+            `https://api.elevenlabs.io/v1/convai/twilio/phone-numbers/${phoneNumberId}`,
+            { headers: { 'xi-api-key': elevenLabsApiKey } }
+          );
+
+          if (validateRes.ok) {
+            return new Response(JSON.stringify({ valid: true }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          } else {
+            const errText = await validateRes.text();
+            return new Response(JSON.stringify({ valid: false, error: `Phone number ID not found in ElevenLabs: ${errText}` }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              status: 400,
+            });
+          }
+        } catch (e) {
+          return new Response(JSON.stringify({ valid: false, error: e.message }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 500,
+          });
+        }
+      }
+
       case 'create': {
         if (!roleId) {
           return new Response(JSON.stringify({ error: 'roleId is required' }), {
