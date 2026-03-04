@@ -104,6 +104,22 @@ serve(async (req) => {
           .single()
 
         if (error) throw error
+
+        // Auto-provision voice agent (fire-and-forget)
+        try {
+          const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+          await fetch(`${supabaseUrl}/functions/v1/agent-manager`, {
+            method: 'POST',
+            headers: {
+              'Authorization': req.headers.get('Authorization')!,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ action: 'create', roleId: data.id }),
+          });
+        } catch (e) {
+          console.error('Auto-provision agent failed (non-blocking):', e);
+        }
+
         return new Response(JSON.stringify(data), {
           status: 201,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
