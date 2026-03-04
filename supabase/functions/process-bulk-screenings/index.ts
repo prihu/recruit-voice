@@ -247,7 +247,8 @@ async function processBatch(supabase: any, screens: any[], bulkOperationId: stri
             dynamic_variables: {
               candidate_name: candidate.name,
               role_title: role.title,
-              location: role.location
+              location: role.location,
+              screen_id: screen.id,
             },
             custom_data: {
               screen_id: screen.id,
