@@ -147,28 +147,19 @@ async function ensureSaveAnswerTool(apiKey: string, supabaseUrl: string): Promis
   }
 }
 
-// ── Tool update helper (PATCH existing tool schema) ─────────────────
+// ── Tool update helper (delete old + create fresh) ──────────────────
 
-async function updateSaveAnswerTool(apiKey: string, toolId: string, supabaseUrl: string): Promise<void> {
+async function updateSaveAnswerTool(apiKey: string, toolId: string, supabaseUrl: string): Promise<string | null> {
   try {
-    const schema = getToolSchema(supabaseUrl);
-    const response = await fetch(`https://api.elevenlabs.io/v1/convai/tools/${toolId}`, {
-      method: 'PATCH',
-      headers: {
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ tool_config: schema }),
+    const delRes = await fetch(`https://api.elevenlabs.io/v1/convai/tools/${toolId}`, {
+      method: 'DELETE',
+      headers: { 'xi-api-key': apiKey },
     });
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`Failed to update tool ${toolId}:`, errText);
-    } else {
-      console.log(`Tool ${toolId} schema updated successfully`);
-    }
+    console.log(`Deleted old tool ${toolId}: ${delRes.status}`);
   } catch (e) {
-    console.error('Tool update error:', e);
+    console.error('Tool deletion error (continuing):', e);
   }
+  return await ensureSaveAnswerTool(apiKey, supabaseUrl);
 }
 
 // ── Manage KB documents lifecycle ───────────────────────────────────
@@ -479,7 +470,11 @@ serve(async (req) => {
         // 2. Ensure save_answer tool exists and schema is up to date
         let toolId = role.tool_save_answer_id;
         if (toolId) {
-          await updateSaveAnswerTool(elevenLabsApiKey, toolId, supabaseUrl);
+          const newToolId = await updateSaveAnswerTool(elevenLabsApiKey, toolId, supabaseUrl);
+          if (newToolId) {
+            toolId = newToolId;
+            await supabase.from('roles').update({ tool_save_answer_id: toolId }).eq('id', roleId);
+          }
         } else {
           toolId = await ensureSaveAnswerTool(elevenLabsApiKey, supabaseUrl);
           if (toolId) {
@@ -615,7 +610,11 @@ serve(async (req) => {
           // Ensure tool and update schema
           let toolId = role.tool_save_answer_id;
           if (toolId) {
-            await updateSaveAnswerTool(elevenLabsApiKey, toolId, supabaseUrl);
+            const newToolId = await updateSaveAnswerTool(elevenLabsApiKey, toolId, supabaseUrl);
+            if (newToolId) {
+              toolId = newToolId;
+              await supabase.from('roles').update({ tool_save_answer_id: toolId }).eq('id', updates.roleId);
+            }
           } else {
             toolId = await ensureSaveAnswerTool(elevenLabsApiKey, supabaseUrl);
             if (toolId) {
