@@ -1,46 +1,42 @@
 
 
-## Problem
+## How the Tool Schema Reaches ElevenLabs
 
-The screenshot shows the ElevenLabs tool `save_screening_answer` failing with **"Missing required parameter: question_index"**. The LLM correctly extracts `question_text`, `candidate_answer`, and `answer_quality`, but consistently omits `question_index`. This is a known behavior with ElevenLabs conversational AI -- the LLM sometimes fails to populate integer index fields reliably.
+The `ensureSaveAnswerTool()` function (line 65 in `agent-manager/index.ts`) calls the **ElevenLabs Tools API** (`POST https://api.elevenlabs.io/v1/convai/tools`) to register the `save_screening_answer` tool. This is where the `request_body_schema` — including the `required` array — lives. The tool is then attached to the agent via `tool_ids` when the agent is created or updated.
 
-## Root Cause
+**The problem**: `ensureSaveAnswerTool()` creates a **new tool every time** it's called (POST, not PUT). The old agents still reference old tool IDs with the old schema (where `question_index` was required). The code change we made only affects **newly created** tools going forward.
 
-The tool's `request_body_schema` marks `question_index` as **required**, but the ElevenLabs LLM doesn't reliably generate it. Every tool call fails validation before even reaching the webhook endpoint.
+**To fix existing agents**: The agent for this role must be **re-provisioned** — meaning the agent-manager function must run again for this role, which will:
+1. Create a new tool with the updated schema (without `question_index` required)
+2. Create or update the ElevenLabs agent to reference the new tool ID
 
-## Plan
+## What Needs to Happen
 
-### 1. Make `question_index` optional in the tool schema (2 files)
+### Already done (code changes)
+- `question_index` removed from `required` in the tool schema (both `agent-manager` and `demo-api-agent-manager`)
+- `elevenlabs-tool-save-answer` handles missing `question_index` with a fallback
 
-In both `supabase/functions/demo-api-agent-manager/index.ts` and `supabase/functions/agent-manager/index.ts`:
-- Remove `question_index` from the `required` array
-- Keep it in `properties` so the LLM *can* provide it, but won't fail if it doesn't
+### Still needed: Re-provision the agent
 
-```
-required: ['question_text', 'candidate_answer', 'answer_quality']
-```
+The existing ElevenLabs agent for this role still points to the **old tool** with `question_index` required. You need to trigger agent re-provisioning by one of these methods:
 
-### 2. Handle missing `question_index` in the webhook (1 file)
+1. **Edit and save the role** in the app (e.g., change a question slightly and save) — this triggers the agent-manager function, which creates a new tool with the updated schema and updates the agent
+2. **Manually invoke** the agent-manager edge function for this role's ID
 
-In `supabase/functions/elevenlabs-tool-save-answer/index.ts`:
-- If `question_index` is missing, derive a key from `question_text` (hash or sequential based on existing answers count)
-- Use `Object.keys(existingAnswers).length + 1` as fallback index
+### Plan: Add a "Re-provision Agent" action
 
-```typescript
-const effectiveIndex = question_index ?? (Object.keys(existingAnswers).length + 1);
-const answerKey = `q_${effectiveIndex}`;
-```
+To make this easier, add a button on the role detail page that calls the agent-manager function to force-update the ElevenLabs agent with the latest tool schema, without requiring the user to edit the role.
 
-### 3. Redeploy both edge functions
+**File to change**: `src/pages/RoleDetail.tsx` — add a "Sync Agent" or "Re-provision Agent" button that invokes the agent-manager edge function for the current role.
 
-After code changes, deploy `demo-api-agent-manager`, `agent-manager`, and `elevenlabs-tool-save-answer`.
+### Additional improvement: Add `screen_id` as dynamic variable
 
-### 4. Re-provision the ElevenLabs agent
+Per the earlier plan, `screen_id` should be added to the tool schema and passed via `dynamic_variables` in the outbound call so the webhook knows which screen record to update. Without this, the webhook cannot reliably find the correct database record.
 
-The tool schema is registered with ElevenLabs when the agent is created/updated. After deploying the updated agent-manager, the agent needs to be re-provisioned (via Settings or by triggering a new screening) so the updated tool schema takes effect.
-
-## Files to change
-- `supabase/functions/demo-api-agent-manager/index.ts` -- remove `question_index` from required
-- `supabase/functions/agent-manager/index.ts` -- same
-- `supabase/functions/elevenlabs-tool-save-answer/index.ts` -- handle missing `question_index` gracefully
+**Files to change**:
+- `supabase/functions/agent-manager/index.ts` — add `screen_id` to tool schema properties
+- `supabase/functions/demo-api-agent-manager/index.ts` — same
+- `supabase/functions/elevenlabs-voice/index.ts` — move `screen_id` into `dynamic_variables`
+- `supabase/functions/elevenlabs-tool-save-answer/index.ts` — use `question_text`-based keys to prevent race conditions
+- `src/pages/RoleDetail.tsx` — add "Re-provision Agent" button
 
