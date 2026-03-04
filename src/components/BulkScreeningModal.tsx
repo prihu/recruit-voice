@@ -71,12 +71,15 @@ export function BulkScreeningModal({
   const fetchCandidates = async () => {
     try {
       const candidatesData = await demoAPI.getCandidates();
-      // Filter out candidates that haven't been screened
-      const unscreenedCandidates = candidatesData.filter((candidate: any) => {
-        // In demo mode, assume all candidates are available for screening
+      // Deduplicate by phone number (keep first occurrence)
+      const seen = new Set<string>();
+      const uniqueCandidates = candidatesData.filter((candidate: any) => {
+        const phone = candidate.phone?.replace(/\s+/g, '');
+        if (!phone || seen.has(phone)) return false;
+        seen.add(phone);
         return true;
       });
-      setCandidates(unscreenedCandidates);
+      setCandidates(uniqueCandidates);
     } catch (error) {
       console.error('Error fetching candidates:', error);
     }
