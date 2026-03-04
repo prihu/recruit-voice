@@ -139,6 +139,22 @@ serve(async (req) => {
           .single()
 
         if (updateError) throw updateError
+
+        // Auto-sync voice agent (fire-and-forget)
+        try {
+          const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+          await fetch(`${supabaseUrl}/functions/v1/agent-manager`, {
+            method: 'POST',
+            headers: {
+              'Authorization': req.headers.get('Authorization')!,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ action: 'create', roleId }),
+          });
+        } catch (e) {
+          console.error('Auto-sync agent failed (non-blocking):', e);
+        }
+
         return new Response(JSON.stringify(updateData), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
