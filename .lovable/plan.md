@@ -1,42 +1,49 @@
 
 
-## How the Tool Schema Reaches ElevenLabs
+## Root Cause
 
-The `ensureSaveAnswerTool()` function (line 65 in `agent-manager/index.ts`) calls the **ElevenLabs Tools API** (`POST https://api.elevenlabs.io/v1/convai/tools`) to register the `save_screening_answer` tool. This is where the `request_body_schema` — including the `required` array — lives. The tool is then attached to the agent via `tool_ids` when the agent is created or updated.
+The tool is not being called because **the old tool (tool_6801kjvyc047ezsrvx4xm2vkzk1z) still has the old schema** where `question_index` was required. The update flow in both `demo-api-agent-manager` and `agent-manager` has this logic:
 
-**The problem**: `ensureSaveAnswerTool()` creates a **new tool every time** it's called (POST, not PUT). The old agents still reference old tool IDs with the old schema (where `question_index` was required). The code change we made only affects **newly created** tools going forward.
+```typescript
+let toolId = role.tool_save_answer_id;
+if (!toolId) {                              // <-- SKIPS if tool already exists
+  toolId = await ensureSaveAnswerTool(...);
+}
+```
 
-**To fix existing agents**: The agent for this role must be **re-provisioned** — meaning the agent-manager function must run again for this role, which will:
-1. Create a new tool with the updated schema (without `question_index` required)
-2. Create or update the ElevenLabs agent to reference the new tool ID
+Since the role already has `tool_save_answer_id` stored, the code **reuses the old tool ID** without updating its schema. ElevenLabs validates tool parameters before making the webhook call, and since the old tool still requires `question_index` (which the LLM doesn't reliably provide), the call is silently rejected at the platform level — the webhook is never hit, which is why there are zero logs for `elevenlabs-tool-save-answer`.
 
-## What Needs to Happen
+## Fix
 
-### Already done (code changes)
-- `question_index` removed from `required` in the tool schema (both `agent-manager` and `demo-api-agent-manager`)
-- `elevenlabs-tool-save-answer` handles missing `question_index` with a fallback
+### 1. Always update (PATCH) the existing tool schema when updating an agent
 
-### Still needed: Re-provision the agent
+Instead of only creating a tool when none exists, also PATCH the existing tool to update its schema. Add a new `updateSaveAnswerTool()` function that calls `PATCH https://api.elevenlabs.io/v1/convai/tools/{tool_id}` with the current schema.
 
-The existing ElevenLabs agent for this role still points to the **old tool** with `question_index` required. You need to trigger agent re-provisioning by one of these methods:
+### 2. Update both agent-manager files
 
-1. **Edit and save the role** in the app (e.g., change a question slightly and save) — this triggers the agent-manager function, which creates a new tool with the updated schema and updates the agent
-2. **Manually invoke** the agent-manager edge function for this role's ID
+In `supabase/functions/demo-api-agent-manager/index.ts` and `supabase/functions/agent-manager/index.ts`:
+- Add `updateSaveAnswerTool(apiKey, toolId)` function
+- Change the tool logic from "create only if missing" to "create if missing, PATCH if exists"
 
-### Plan: Add a "Re-provision Agent" action
+```typescript
+let toolId = role.tool_save_answer_id;
+if (toolId) {
+  // Update existing tool schema
+  await updateSaveAnswerTool(apiKey, toolId, supabaseUrl);
+} else {
+  // Create new tool
+  toolId = await ensureSaveAnswerTool(apiKey, supabaseUrl);
+  if (toolId) {
+    await supabase.from('roles').update({ tool_save_answer_id: toolId }).eq('id', roleId);
+  }
+}
+```
 
-To make this easier, add a button on the role detail page that calls the agent-manager function to force-update the ElevenLabs agent with the latest tool schema, without requiring the user to edit the role.
+### 3. Deploy and re-provision
 
-**File to change**: `src/pages/RoleDetail.tsx` — add a "Sync Agent" or "Re-provision Agent" button that invokes the agent-manager edge function for the current role.
+After deploying the updated edge functions, trigger an agent update (via the Test tab "Update Agent" button) to push the corrected tool schema to ElevenLabs.
 
-### Additional improvement: Add `screen_id` as dynamic variable
-
-Per the earlier plan, `screen_id` should be added to the tool schema and passed via `dynamic_variables` in the outbound call so the webhook knows which screen record to update. Without this, the webhook cannot reliably find the correct database record.
-
-**Files to change**:
-- `supabase/functions/agent-manager/index.ts` — add `screen_id` to tool schema properties
-- `supabase/functions/demo-api-agent-manager/index.ts` — same
-- `supabase/functions/elevenlabs-voice/index.ts` — move `screen_id` into `dynamic_variables`
-- `supabase/functions/elevenlabs-tool-save-answer/index.ts` — use `question_text`-based keys to prevent race conditions
-- `src/pages/RoleDetail.tsx` — add "Re-provision Agent" button
+## Files to change
+- `supabase/functions/demo-api-agent-manager/index.ts` — add `updateSaveAnswerTool`, change tool logic in create/update cases
+- `supabase/functions/agent-manager/index.ts` — same changes
 
