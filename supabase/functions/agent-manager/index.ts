@@ -71,48 +71,33 @@ function getToolSchema(supabaseUrl: string) {
     api_schema: {
       url: toolUrl,
       method: 'POST',
-      request_headers: [],
+      request_headers: {},
       request_body_schema: {
         type: 'object',
-        properties: [
-          {
-            id: 'screen_id',
+        properties: {
+          screen_id: {
             type: 'string',
-            value_type: 'dynamic_variable',
-            dynamic_variable: 'screen_id',
             description: 'The screening session ID (auto-populated)',
-            required: false,
           },
-          {
-            id: 'question_index',
+          question_index: {
             type: 'number',
-            value_type: 'llm_prompt',
             description: 'The 1-based index of the screening question',
-            required: false,
           },
-          {
-            id: 'question_text',
+          question_text: {
             type: 'string',
-            value_type: 'llm_prompt',
             description: 'The screening question that was asked',
-            required: true,
           },
-          {
-            id: 'candidate_answer',
+          candidate_answer: {
             type: 'string',
-            value_type: 'llm_prompt',
             description: 'The candidate\'s answer summarized clearly',
-            required: true,
           },
-          {
-            id: 'answer_quality',
+          answer_quality: {
             type: 'string',
-            value_type: 'llm_prompt',
-            description: 'Quality assessment of the answer: good, partial, poor, or skipped',
+            description: 'Quality assessment: good, partial, poor, or skipped',
             enum: ['good', 'partial', 'poor', 'skipped'],
-            required: true,
           },
-        ],
+        },
+        required: ['question_text', 'candidate_answer', 'answer_quality'],
       },
     },
     dynamic_variables: {
@@ -150,17 +135,9 @@ async function ensureSaveAnswerTool(supabaseUrl: string): Promise<string | null>
 // ── Tool update helper (delete old + create fresh) ──────────────────
 
 async function updateSaveAnswerTool(toolId: string, supabaseUrl: string): Promise<string | null> {
-  try {
-    // Delete old tool to avoid PATCH format issues
-    const delRes = await fetch(`https://api.elevenlabs.io/v1/convai/tools/${toolId}`, {
-      method: 'DELETE',
-      headers: { 'xi-api-key': ELEVENLABS_API_KEY },
-    });
-    console.log(`Deleted old tool ${toolId}: ${delRes.status}`);
-  } catch (e) {
-    console.error('Tool deletion error (continuing):', e);
-  }
-  // Create fresh tool with correct schema
+  // Don't delete old tool — returns 409 if still referenced by agent.
+  // Create a fresh tool; the agent will be updated to reference the new one.
+  console.log(`Skipping deletion of tool ${toolId} (may be agent-referenced). Creating new tool.`);
   return await ensureSaveAnswerTool(supabaseUrl);
 }
 
