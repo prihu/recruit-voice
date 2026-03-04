@@ -54,4 +54,3 @@ tool_ids: [toolId]
 ### Verification
 
 After deploying, re-sync the agent and check edge function logs to confirm KB docs and tool are created successfully.
-

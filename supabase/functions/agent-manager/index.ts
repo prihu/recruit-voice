@@ -14,7 +14,7 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 async function createKBDocument(name: string, content: string): Promise<string | null> {
   try {
-    const response = await fetch('https://api.elevenlabs.io/v1/convai/knowledge-base/documents/create-from-text', {
+    const response = await fetch('https://api.elevenlabs.io/v1/convai/knowledge-base/text', {
       method: 'POST',
       headers: {
         'xi-api-key': ELEVENLABS_API_KEY,
@@ -36,7 +36,7 @@ async function createKBDocument(name: string, content: string): Promise<string |
 
 async function deleteKBDocument(docId: string): Promise<void> {
   try {
-    await fetch(`https://api.elevenlabs.io/v1/convai/knowledge-base/documents/${docId}`, {
+    await fetch(`https://api.elevenlabs.io/v1/convai/knowledge-base/${docId}`, {
       method: 'DELETE',
       headers: { 'xi-api-key': ELEVENLABS_API_KEY },
     });
@@ -65,7 +65,7 @@ function buildFAQContent(faq: any[]): string {
 async function ensureSaveAnswerTool(supabaseUrl: string): Promise<string | null> {
   try {
     const toolUrl = `${supabaseUrl}/functions/v1/elevenlabs-tool-save-answer`;
-    const response = await fetch('https://api.elevenlabs.io/v1/convai/agents/tools', {
+    const response = await fetch('https://api.elevenlabs.io/v1/convai/tools', {
       method: 'POST',
       headers: {
         'xi-api-key': ELEVENLABS_API_KEY,
@@ -200,10 +200,10 @@ After each question is answered, call the save_screening_answer tool with the qu
   if (kbDocIds.jdDocId) knowledgeBase.push(kbDocIds.jdDocId);
   if (kbDocIds.faqDocId) knowledgeBase.push(kbDocIds.faqDocId);
 
-  // Build tools array
-  const tools: any[] = [];
+  // Build tool_ids array
+  const toolIds: string[] = [];
   if (toolId) {
-    tools.push({ tool_id: toolId });
+    toolIds.push(toolId);
   }
 
   const config: any = {
@@ -213,7 +213,7 @@ After each question is answered, call the save_screening_answer tool with the qu
         prompt: {
           prompt: prompt,
           ...(knowledgeBase.length > 0 ? { knowledge_base: knowledgeBase } : {}),
-          ...(tools.length > 0 ? { tools: tools } : {}),
+          ...(toolIds.length > 0 ? { tool_ids: toolIds } : {}),
         },
         first_message: firstMessage,
         language: "en",
