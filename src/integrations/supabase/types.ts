@@ -418,6 +418,8 @@ export type Database = {
           evaluation_criteria: string | null
           faq: Json | null
           id: string
+          kb_faq_doc_id: string | null
+          kb_jd_doc_id: string | null
           location: string
           organization_id: string | null
           questions: Json | null
@@ -428,6 +430,7 @@ export type Database = {
           status: string | null
           summary: string | null
           title: string
+          tool_save_answer_id: string | null
           updated_at: string | null
           user_id: string
           voice_agent_id: string | null
@@ -444,6 +447,8 @@ export type Database = {
           evaluation_criteria?: string | null
           faq?: Json | null
           id?: string
+          kb_faq_doc_id?: string | null
+          kb_jd_doc_id?: string | null
           location: string
           organization_id?: string | null
           questions?: Json | null
@@ -454,6 +459,7 @@ export type Database = {
           status?: string | null
           summary?: string | null
           title: string
+          tool_save_answer_id?: string | null
           updated_at?: string | null
           user_id: string
           voice_agent_id?: string | null
@@ -470,6 +476,8 @@ export type Database = {
           evaluation_criteria?: string | null
           faq?: Json | null
           id?: string
+          kb_faq_doc_id?: string | null
+          kb_jd_doc_id?: string | null
           location?: string
           organization_id?: string | null
           questions?: Json | null
@@ -480,6 +488,7 @@ export type Database = {
           status?: string | null
           summary?: string | null
           title?: string
+          tool_save_answer_id?: string | null
           updated_at?: string | null
           user_id?: string
           voice_agent_id?: string | null

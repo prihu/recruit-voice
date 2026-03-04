@@ -10,8 +10,257 @@ const ELEVENLABS_API_KEY = Deno.env.get('ELEVENLABS_API_KEY')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
+// ── Knowledge Base helpers ──────────────────────────────────────────
+
+async function createKBDocument(name: string, content: string): Promise<string | null> {
+  try {
+    const response = await fetch('https://api.elevenlabs.io/v1/convai/knowledge-base/documents/create-from-text', {
+      method: 'POST',
+      headers: {
+        'xi-api-key': ELEVENLABS_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name, text: content }),
+    });
+    if (!response.ok) {
+      console.error('Failed to create KB doc:', await response.text());
+      return null;
+    }
+    const data = await response.json();
+    return data.id || data.document_id || null;
+  } catch (e) {
+    console.error('KB document creation error:', e);
+    return null;
+  }
+}
+
+async function deleteKBDocument(docId: string): Promise<void> {
+  try {
+    await fetch(`https://api.elevenlabs.io/v1/convai/knowledge-base/documents/${docId}`, {
+      method: 'DELETE',
+      headers: { 'xi-api-key': ELEVENLABS_API_KEY },
+    });
+  } catch (e) {
+    console.error('KB document deletion error:', e);
+  }
+}
+
+function buildJDContent(role: any): string {
+  const parts = [
+    `Position: ${role.title}`,
+    `Location: ${role.location}`,
+    `Salary: ${role.salary_currency || 'INR'} ${role.salary_min || 'Not specified'} - ${role.salary_max || 'Not specified'}`,
+  ];
+  if (role.summary) parts.push(`\nAbout the Role:\n${role.summary}`);
+  return parts.join('\n');
+}
+
+function buildFAQContent(faq: any[]): string {
+  if (!faq || faq.length === 0) return '';
+  return faq.map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n');
+}
+
+// ── Tool registration helper ────────────────────────────────────────
+
+async function ensureSaveAnswerTool(supabaseUrl: string): Promise<string | null> {
+  try {
+    const toolUrl = `${supabaseUrl}/functions/v1/elevenlabs-tool-save-answer`;
+    const response = await fetch('https://api.elevenlabs.io/v1/convai/agents/tools', {
+      method: 'POST',
+      headers: {
+        'xi-api-key': ELEVENLABS_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'save_screening_answer',
+        description: 'Save the candidate\'s answer to a screening question. Call this after each screening question is answered.',
+        type: 'webhook',
+        api_schema: {
+          url: toolUrl,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          request_body: {
+            type: 'object',
+            properties: {
+              question_index: { type: 'integer', description: 'The 1-based index of the screening question' },
+              question_text: { type: 'string', description: 'The screening question that was asked' },
+              candidate_answer: { type: 'string', description: 'The candidate\'s answer summarized clearly' },
+              answer_quality: { type: 'string', enum: ['good', 'partial', 'poor', 'skipped'], description: 'Quality assessment of the answer' },
+            },
+            required: ['question_index', 'question_text', 'candidate_answer', 'answer_quality'],
+          },
+        },
+      }),
+    });
+    if (!response.ok) {
+      console.error('Failed to create tool:', await response.text());
+      return null;
+    }
+    const data = await response.json();
+    return data.tool_id || data.id || null;
+  } catch (e) {
+    console.error('Tool registration error:', e);
+    return null;
+  }
+}
+
+// ── Manage KB documents lifecycle ───────────────────────────────────
+
+async function manageKBDocuments(
+  role: any,
+  supabase: any
+): Promise<{ jdDocId: string | null; faqDocId: string | null }> {
+  // Delete old KB docs if they exist
+  if (role.kb_jd_doc_id) await deleteKBDocument(role.kb_jd_doc_id);
+  if (role.kb_faq_doc_id) await deleteKBDocument(role.kb_faq_doc_id);
+
+  // Create new KB documents
+  const jdContent = buildJDContent(role);
+  const faqContent = buildFAQContent(role.faq || []);
+
+  const jdDocId = jdContent ? await createKBDocument(`JD - ${role.title}`, jdContent) : null;
+  const faqDocId = faqContent ? await createKBDocument(`FAQ - ${role.title}`, faqContent) : null;
+
+  // Save IDs back to role
+  const updateData: any = {};
+  if (jdDocId !== undefined) updateData.kb_jd_doc_id = jdDocId;
+  if (faqDocId !== undefined) updateData.kb_faq_doc_id = faqDocId;
+
+  if (Object.keys(updateData).length > 0) {
+    await supabase.from('roles').update(updateData).eq('id', role.id);
+  }
+
+  return { jdDocId, faqDocId };
+}
+
+// ── Slim prompt generator (behavior-only) ───────────────────────────
+
+function generateAgentConfig(role: any, organization: any, kbDocIds: { jdDocId: string | null; faqDocId: string | null }, toolId: string | null) {
+  const companyName = role.company_name || organization.name;
+  const questions = role.questions || [];
+  const evaluationCriteria = role.evaluation_criteria || role.rules || '';
+
+  const screeningQuestions = questions.length > 0
+    ? questions.map((q: any, i: number) => {
+        let text = `${i + 1}. ${q.text || q}`;
+        if (q.type === 'multi_choice' && q.options) text += ` (Options: ${q.options.join(', ')})`;
+        if (q.required) text += ' [REQUIRED]';
+        return text;
+      }).join('\n')
+    : 'General discussion about experience and background';
+
+  // Slim prompt — NO JD content, NO FAQs (those are in KB)
+  const prompt = `# Personality
+
+You are a professional phone screening specialist conducting interviews for ${companyName}.
+You are friendly, attentive, and genuinely interested in understanding candidate qualifications.
+You balance professionalism with warmth. You're naturally curious and empathetic.
+
+# Environment
+
+You are conducting a phone screening for the ${role.title} position at ${companyName}.
+This is a voice-only interaction. The candidate may be in various environments.
+Timezone: ${role.call_window?.timezone || organization.timezone || 'Asia/Kolkata'}.
+
+# Tone
+
+Professional yet conversational. Speak clearly at a moderate pace.
+Use brief affirmations ("I see," "That's interesting") to show active listening.
+If the candidate speaks Hindi or a regional language, respond in the same language.
+
+# Goal
+
+Screen candidates for ${role.title} through a structured interview:
+
+1. Confirm identity and availability. Set expectation: 10-15 minutes.
+2. Ask each screening question below, listen carefully, and record the answer using the save_screening_answer tool.
+3. Answer any questions the candidate has (use knowledge base).
+4. Thank them and explain next steps.
+
+SCREENING QUESTIONS:
+${screeningQuestions}
+
+EVALUATION CRITERIA:
+${evaluationCriteria || 'Assess general fit for the role'}
+
+After each question is answered, call the save_screening_answer tool with the question index, text, candidate answer, and quality assessment.
+
+# Guardrails
+
+- Do not make hiring decisions during the call.
+- Never share other candidates' information.
+- If asked about salary details beyond what's provided, indicate it will be discussed later.
+- Keep professional tone even if candidates express frustration.
+- Do not reveal you are AI unless directly asked.`;
+
+  const firstMessage = `Hello! This is a screening call from ${companyName} for the ${role.title} position. Is this a good time to talk for about 10-15 minutes?`;
+
+  // Build knowledge_base array for agent config
+  const knowledgeBase: string[] = [];
+  if (kbDocIds.jdDocId) knowledgeBase.push(kbDocIds.jdDocId);
+  if (kbDocIds.faqDocId) knowledgeBase.push(kbDocIds.faqDocId);
+
+  // Build tools array
+  const tools: any[] = [];
+  if (toolId) {
+    tools.push({ tool_id: toolId });
+  }
+
+  const config: any = {
+    name: `${role.title} - ${companyName}`,
+    conversation_config: {
+      agent: {
+        prompt: {
+          prompt: prompt,
+          ...(knowledgeBase.length > 0 ? { knowledge_base: knowledgeBase } : {}),
+          ...(tools.length > 0 ? { tools: tools } : {}),
+        },
+        first_message: firstMessage,
+        language: "en",
+      },
+      tts: {
+        voice_id: "21m00Tcm4TlvDq8ikWAM",
+      },
+      conversation: {
+        max_duration_seconds: 1800,
+      },
+    },
+    platform_settings: {
+      max_duration: 1800,
+    },
+    tags: [
+      `org-${organization.id}`,
+      `role-${role.id}`,
+      'screening-agent',
+      organization.country || 'IN',
+    ],
+  };
+
+  // Extract keywords for ASR
+  const keywords = extractKeywords(role);
+  if (keywords.length > 0) {
+    config.conversation_config.asr = {
+      quality: "high",
+      keywords: keywords,
+    };
+  }
+
+  return config;
+}
+
+function extractKeywords(role: any): string[] {
+  const keywords: string[] = [];
+  if (role.location) keywords.push(...role.location.split(/[\s,]+/));
+  keywords.push('Bangalore', 'Bengaluru', 'Mumbai', 'Delhi', 'Chennai', 'Hyderabad', 'Pune',
+    'lakhs', 'crores', 'INR', 'rupees', 'fresher', 'experienced', 'notice period');
+  if (role.title) keywords.push(...role.title.split(/[\s-]+/));
+  if (role.required_skills) keywords.push(...role.required_skills);
+  return [...new Set(keywords)];
+}
+
+// ── Main handler ────────────────────────────────────────────────────
+
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -41,21 +290,15 @@ serve(async (req) => {
         const { roleId } = await req.json();
         console.log(`Creating agent for role ${roleId}`);
 
-        // Fetch role data with organization info
         const { data: role, error: roleError } = await supabase
           .from('roles')
-          .select(`
-            *,
-            organization:organizations(*)
-          `)
+          .select('*, organization:organizations(*)')
           .eq('id', roleId)
           .single();
 
-        if (roleError || !role) {
-          throw new Error('Role not found');
-        }
+        if (roleError || !role) throw new Error('Role not found');
 
-        // Verify user has access to this role
+        // Verify access
         const { data: membership, error: memberError } = await supabase
           .from('organization_members')
           .select('*')
@@ -63,14 +306,25 @@ serve(async (req) => {
           .eq('organization_id', role.organization_id)
           .single();
 
-        if (memberError || !membership) {
-          throw new Error('Unauthorized: User not member of organization');
+        if (memberError || !membership) throw new Error('Unauthorized: User not member of organization');
+
+        // 1. Create KB documents
+        const kbDocIds = await manageKBDocuments(role, supabase);
+        console.log('KB docs created:', kbDocIds);
+
+        // 2. Ensure save_answer tool exists
+        let toolId = role.tool_save_answer_id;
+        if (!toolId) {
+          toolId = await ensureSaveAnswerTool(SUPABASE_URL);
+          if (toolId) {
+            await supabase.from('roles').update({ tool_save_answer_id: toolId }).eq('id', roleId);
+          }
         }
 
-        // Generate comprehensive agent configuration
-        const agentConfig = generateAgentConfig(role, role.organization);
+        // 3. Generate config with KB + tool references
+        const agentConfig = generateAgentConfig(role, role.organization, kbDocIds, toolId);
 
-        // Create agent in ElevenLabs
+        // 4. Create agent in ElevenLabs
         const createResponse = await fetch('https://api.elevenlabs.io/v1/convai/agents', {
           method: 'POST',
           headers: {
@@ -87,30 +341,17 @@ serve(async (req) => {
         }
 
         const agentData = await createResponse.json();
-        console.log('Agent created successfully:', agentData.agent_id);
+        console.log('Agent created:', agentData.agent_id);
 
-        // Update role with agent ID and status
-        const { error: updateError } = await supabase
-          .from('roles')
-          .update({
-            voice_agent_id: agentData.agent_id,
-            agent_created_at: new Date().toISOString(),
-            agent_sync_status: 'synced',
-            agent_error_message: null,
-          })
-          .eq('id', roleId);
-
-        if (updateError) {
-          console.error('Failed to update role:', updateError);
-          throw new Error('Failed to update role with agent ID');
-        }
+        await supabase.from('roles').update({
+          voice_agent_id: agentData.agent_id,
+          agent_created_at: new Date().toISOString(),
+          agent_sync_status: 'synced',
+          agent_error_message: null,
+        }).eq('id', roleId);
 
         return new Response(
-          JSON.stringify({ 
-            success: true, 
-            agentId: agentData.agent_id,
-            message: 'Agent created successfully'
-          }),
+          JSON.stringify({ success: true, agentId: agentData.agent_id, message: 'Agent created successfully' }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -119,21 +360,14 @@ serve(async (req) => {
         const { roleId } = await req.json();
         console.log(`Updating agent for role ${roleId}`);
 
-        // Fetch role data with organization info
         const { data: role, error: roleError } = await supabase
           .from('roles')
-          .select(`
-            *,
-            organization:organizations(*)
-          `)
+          .select('*, organization:organizations(*)')
           .eq('id', roleId)
           .single();
 
-        if (roleError || !role || !role.voice_agent_id) {
-          throw new Error('Role or agent not found');
-        }
+        if (roleError || !role || !role.voice_agent_id) throw new Error('Role or agent not found');
 
-        // Verify user has access
         const { data: membership, error: memberError } = await supabase
           .from('organization_members')
           .select('*')
@@ -141,14 +375,23 @@ serve(async (req) => {
           .eq('organization_id', role.organization_id)
           .single();
 
-        if (memberError || !membership) {
-          throw new Error('Unauthorized');
+        if (memberError || !membership) throw new Error('Unauthorized');
+
+        // 1. Refresh KB documents
+        const kbDocIds = await manageKBDocuments(role, supabase);
+
+        // 2. Ensure tool
+        let toolId = role.tool_save_answer_id;
+        if (!toolId) {
+          toolId = await ensureSaveAnswerTool(SUPABASE_URL);
+          if (toolId) {
+            await supabase.from('roles').update({ tool_save_answer_id: toolId }).eq('id', roleId);
+          }
         }
 
-        // Generate updated configuration
-        const agentConfig = generateAgentConfig(role, role.organization);
+        // 3. Generate updated config
+        const agentConfig = generateAgentConfig(role, role.organization, kbDocIds, toolId);
 
-        // Update agent in ElevenLabs
         const updateResponse = await fetch(
           `https://api.elevenlabs.io/v1/convai/agents/${role.voice_agent_id}`,
           {
@@ -167,24 +410,13 @@ serve(async (req) => {
           throw new Error('Failed to update agent in ElevenLabs');
         }
 
-        // Update sync status
-        const { error: updateError } = await supabase
-          .from('roles')
-          .update({
-            agent_sync_status: 'synced',
-            agent_error_message: null,
-          })
-          .eq('id', roleId);
-
-        if (updateError) {
-          console.error('Failed to update role sync status:', updateError);
-        }
+        await supabase.from('roles').update({
+          agent_sync_status: 'synced',
+          agent_error_message: null,
+        }).eq('id', roleId);
 
         return new Response(
-          JSON.stringify({ 
-            success: true,
-            message: 'Agent updated successfully'
-          }),
+          JSON.stringify({ success: true, message: 'Agent updated successfully' }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -193,62 +425,37 @@ serve(async (req) => {
         const { roleId, reason } = await req.json();
         console.log(`Archiving agent for role ${roleId}`);
 
-        // Fetch role data
         const { data: role, error: roleError } = await supabase
-          .from('roles')
-          .select('*')
-          .eq('id', roleId)
-          .single();
+          .from('roles').select('*').eq('id', roleId).single();
 
-        if (roleError || !role || !role.voice_agent_id) {
-          throw new Error('Role or agent not found');
-        }
+        if (roleError || !role || !role.voice_agent_id) throw new Error('Role or agent not found');
 
-        // Verify user has access
         const { data: membership, error: memberError } = await supabase
-          .from('organization_members')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('organization_id', role.organization_id)
-          .single();
+          .from('organization_members').select('*')
+          .eq('user_id', userId).eq('organization_id', role.organization_id).single();
 
-        if (memberError || !membership) {
-          throw new Error('Unauthorized');
-        }
+        if (memberError || !membership) throw new Error('Unauthorized');
 
-        // Log the archival
-        const { error: logError } = await supabase
-          .from('agent_archive_log')
-          .insert({
-            role_id: roleId,
-            agent_id: role.voice_agent_id,
-            reason: reason || 'Manually archived',
-            organization_id: role.organization_id,
-          });
+        // Clean up KB docs
+        if (role.kb_jd_doc_id) await deleteKBDocument(role.kb_jd_doc_id);
+        if (role.kb_faq_doc_id) await deleteKBDocument(role.kb_faq_doc_id);
 
-        if (logError) {
-          console.error('Failed to log archival:', logError);
-        }
+        await supabase.from('agent_archive_log').insert({
+          role_id: roleId,
+          agent_id: role.voice_agent_id,
+          reason: reason || 'Manually archived',
+          organization_id: role.organization_id,
+        });
 
-        // Update role status
-        const { error: updateError } = await supabase
-          .from('roles')
-          .update({
-            agent_sync_status: 'archived',
-            voice_agent_id: null, // Clear the agent ID
-          })
-          .eq('id', roleId);
-
-        if (updateError) {
-          console.error('Failed to update role:', updateError);
-          throw new Error('Failed to archive agent');
-        }
+        await supabase.from('roles').update({
+          agent_sync_status: 'archived',
+          voice_agent_id: null,
+          kb_jd_doc_id: null,
+          kb_faq_doc_id: null,
+        }).eq('id', roleId);
 
         return new Response(
-          JSON.stringify({ 
-            success: true,
-            message: 'Agent archived successfully'
-          }),
+          JSON.stringify({ success: true, message: 'Agent archived successfully' }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -256,59 +463,47 @@ serve(async (req) => {
       case 'cleanup': {
         console.log('Running agent cleanup job');
 
-        // Find agents not used in 7 days
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
         const { data: staleRoles, error: fetchError } = await supabase
-          .from('roles')
-          .select('*')
+          .from('roles').select('*')
           .not('voice_agent_id', 'is', null)
           .not('agent_sync_status', 'eq', 'archived')
           .or(`agent_last_used_at.is.null,agent_last_used_at.lt.${sevenDaysAgo.toISOString()}`);
 
-        if (fetchError) {
-          console.error('Failed to fetch stale roles:', fetchError);
-          throw new Error('Failed to fetch stale roles');
-        }
+        if (fetchError) throw new Error('Failed to fetch stale roles');
 
-        const archivedCount = 0;
-        const errors = [];
+        const errors: any[] = [];
 
         for (const role of staleRoles || []) {
           try {
-            // Log the archival
-            await supabase
-              .from('agent_archive_log')
-              .insert({
-                role_id: role.id,
-                agent_id: role.voice_agent_id,
-                reason: 'Inactive for 7+ days',
-                organization_id: role.organization_id,
-              });
+            if (role.kb_jd_doc_id) await deleteKBDocument(role.kb_jd_doc_id);
+            if (role.kb_faq_doc_id) await deleteKBDocument(role.kb_faq_doc_id);
 
-            // Archive the agent
-            await supabase
-              .from('roles')
-              .update({
-                agent_sync_status: 'archived',
-                voice_agent_id: null,
-              })
-              .eq('id', role.id);
+            await supabase.from('agent_archive_log').insert({
+              role_id: role.id,
+              agent_id: role.voice_agent_id,
+              reason: 'Inactive for 7+ days',
+              organization_id: role.organization_id,
+            });
+
+            await supabase.from('roles').update({
+              agent_sync_status: 'archived',
+              voice_agent_id: null,
+              kb_jd_doc_id: null,
+              kb_faq_doc_id: null,
+            }).eq('id', role.id);
 
             console.log(`Archived agent for role ${role.id}`);
-          } catch (error) {
-            console.error(`Failed to archive agent for role ${role.id}:`, error);
+          } catch (error: any) {
+            console.error(`Failed to archive role ${role.id}:`, error);
             errors.push({ roleId: role.id, error: error.message });
           }
         }
 
         return new Response(
-          JSON.stringify({ 
-            success: true,
-            archivedCount: staleRoles?.length || 0,
-            errors
-          }),
+          JSON.stringify({ success: true, archivedCount: staleRoles?.length || 0, errors }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -319,131 +514,11 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in agent-manager:', error);
     return new Response(
-      JSON.stringify({ 
-        error: error.message || 'Internal server error',
-        details: 'There is a problem in ElevenLabs, please contact support'
-      }),
+      JSON.stringify({ error: error.message || 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
-
-function generateAgentConfig(role: any, organization: any) {
-  const companyName = role.company_name || organization.name;
-  const questions = role.questions || [];
-  const faq = role.faq || [];
-  const evaluationCriteria = role.evaluation_criteria || role.rules || '';
-  
-  // Extract keywords from role for better ASR
-  const keywords = extractKeywords(role);
-  
-  // Generate greeting based on context
-  const firstMessage = `Hello! This is an automated screening call from ${companyName} for the ${role.title} position. Is this a good time to talk for about 10-15 minutes?`;
-  
-  // Generate comprehensive prompt
-  const prompt = `You are conducting a phone screening interview for ${role.title} at ${companyName}.
-
-ROLE DETAILS:
-- Position: ${role.title}
-- Location: ${role.location}
-- Salary Range: ${role.salary_currency || 'INR'} ${role.salary_min || 'Not specified'} - ${role.salary_max || 'Not specified'}
-
-ABOUT THE ROLE:
-${role.summary || 'No summary provided'}
-
-EVALUATION CRITERIA:
-${evaluationCriteria || 'Assess general fit for the role'}
-
-SCREENING QUESTIONS YOU MUST ASK:
-${questions.map((q: any, i: number) => `${i + 1}. ${q.text || q}`).join('\n')}
-
-FAQs YOU CAN ANSWER IF ASKED:
-${faq.map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n')}
-
-CALL SETTINGS:
-- Timezone: ${role.call_window?.timezone || organization.timezone || 'Asia/Kolkata'}
-- Working Hours: ${role.call_window?.allowedHours?.start || '9:00'} - ${role.call_window?.allowedHours?.end || '18:00'}
-
-INSTRUCTIONS:
-1. Be professional, friendly, and conversational
-2. Ask each screening question and listen carefully to responses
-3. If the candidate speaks Hindi or a regional language, you may respond in the same language
-4. Take notes on their answers for evaluation
-5. Answer any questions they have about the role using the FAQs
-6. Thank them for their time at the end
-7. Do not make any hiring decisions during the call
-
-IMPORTANT: Keep the conversation natural and engaging. Listen actively and ask follow-up questions when appropriate.`;
-
-  return {
-    name: `${role.title} - ${companyName}`,
-    conversation_config: {
-      asr: {
-        quality: "high",
-        provider: "elevenlabs",
-        user_input_audio_format: "pcm_16000",
-        keywords: keywords
-      },
-      tts: {
-        voice_id: "21m00Tcm4TlvDq8ikWAM", // Rachel - professional female voice
-        model_id: "eleven_turbo_v2_5",
-      },
-      llm: {
-        model: "gpt-4o",
-        prompt: {
-          prompt: prompt
-        },
-        first_message: firstMessage,
-        temperature: 0.7,
-        max_tokens: 150
-      },
-      turn: {
-        turn_timeout: 10,
-        mode: "silence_detection",
-        silence_duration_ms: 2000
-      }
-    },
-    platform_settings: {
-      max_duration: 1800, // 30 minutes max
-      enable_backchannel: true,
-      conversation_id_prefix: `role-${role.id}`
-    },
-    tags: [
-      `org-${organization.id}`,
-      `role-${role.id}`,
-      'screening-agent',
-      organization.country || 'IN'
-    ]
-  };
-}
-
-function extractKeywords(role: any): string[] {
-  const keywords = [];
-  
-  // Add location-based keywords
-  if (role.location) {
-    keywords.push(...role.location.split(/[\s,]+/));
-  }
-  
-  // Add common Indian names and terms
-  keywords.push(
-    'Bangalore', 'Bengaluru', 'Mumbai', 'Delhi', 'Chennai', 'Hyderabad', 'Pune',
-    'lakhs', 'crores', 'INR', 'rupees',
-    'fresher', 'experienced', 'notice period'
-  );
-  
-  // Add role-specific technical terms from title
-  if (role.title) {
-    keywords.push(...role.title.split(/[\s-]+/));
-  }
-  
-  // Add skills if available
-  if (role.required_skills) {
-    keywords.push(...role.required_skills);
-  }
-  
-  return [...new Set(keywords)]; // Remove duplicates
-}

@@ -97,3 +97,6 @@ verify_jwt = true
 
 [functions.poll-stuck-screens]
 verify_jwt = false
+
+[functions.elevenlabs-tool-save-answer]
+verify_jwt = false
