@@ -385,12 +385,25 @@ serve(async (req) => {
       
       const { data: screens, error: screensError } = await supabase
         .from('screens')
-        .insert(screeningData)
+        .upsert(screeningData, {
+          onConflict: 'candidate_id,role_id',
+          ignoreDuplicates: true,
+        })
         .select();
       
       if (screensError) {
         console.error('Error creating screens:', screensError);
         throw screensError;
+      }
+
+      // Update bulk operation total_count to reflect actual inserts (excluding duplicates)
+      if (screens && screens.length < candidateIds.length) {
+        const skipped = candidateIds.length - screens.length;
+        console.log(`Skipped ${skipped} duplicate candidate-role combinations`);
+        await supabase
+          .from('bulk_operations')
+          .update({ total_count: screens.length })
+          .eq('id', bulkOp.id);
       }
       
       // If immediate scheduling, trigger processing
