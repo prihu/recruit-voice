@@ -310,14 +310,23 @@ serve(async (req) => {
           });
         }
 
-        // Generate comprehensive agent configuration
-        const agentConfig = generateAgentConfig(role, {
+        // Fetch actual organization details from DB
+        const { data: org, error: orgError } = await supabase
+          .from('organizations')
+          .select('*')
+          .eq('id', DEMO_ORG_ID)
+          .single();
+
+        const organization = org || {
           id: DEMO_ORG_ID,
           name: 'Demo Company',
           company_domain: 'demo.com',
           timezone: 'Asia/Kolkata',
           country: 'IN'
-        });
+        };
+
+        // Generate comprehensive agent configuration
+        const agentConfig = generateAgentConfig(role, organization);
 
         // Log the configuration being sent for debugging
         console.log('Sending agent configuration to ElevenLabs:', JSON.stringify(agentConfig, null, 2));
@@ -548,13 +557,22 @@ serve(async (req) => {
           }
 
           // Generate agent config based on role
-          const agentConfig = generateAgentConfig(role, {
+        // Fetch actual organization details from DB for update
+          const { data: updateOrg } = await supabase
+            .from('organizations')
+            .select('*')
+            .eq('id', DEMO_ORG_ID)
+            .single();
+
+          const updateOrganization = updateOrg || {
             id: DEMO_ORG_ID,
             name: 'Demo Company',
             company_domain: 'demo.com',
             timezone: 'Asia/Kolkata',
             country: 'IN'
-          });
+          };
+
+          const agentConfig = generateAgentConfig(role, updateOrganization);
           
           console.log('Updating agent with prompt and first_message from role configuration');
           
