@@ -65,7 +65,8 @@ serve(async (req) => {
 
     // Build updated answers object
     const existingAnswers = (screen.answers as Record<string, any>) || {};
-    const answerKey = `q_${question_index}`;
+    const effectiveIndex = question_index ?? (Object.keys(existingAnswers).length + 1);
+    const answerKey = `q_${effectiveIndex}`;
     
     existingAnswers[answerKey] = {
       question_index,

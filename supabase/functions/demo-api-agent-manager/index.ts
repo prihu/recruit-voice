@@ -88,7 +88,7 @@ async function ensureSaveAnswerTool(apiKey: string, supabaseUrl: string): Promis
                 candidate_answer: { type: 'string', description: 'The candidate\'s answer summarized clearly' },
                 answer_quality: { type: 'string', enum: ['good', 'partial', 'poor', 'skipped'], description: 'Quality assessment of the answer' },
               },
-              required: ['question_index', 'question_text', 'candidate_answer', 'answer_quality'],
+              required: ['question_text', 'candidate_answer', 'answer_quality'],
             },
           },
         },
