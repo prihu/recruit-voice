@@ -60,40 +60,44 @@ function buildFAQContent(faq: any[]): string {
   return faq.map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join('\n\n');
 }
 
+// ── Tool schema (single source of truth) ────────────────────────────
+
+function getToolSchema(supabaseUrl: string) {
+  const toolUrl = `${supabaseUrl}/functions/v1/elevenlabs-tool-save-answer`;
+  return {
+    name: 'save_screening_answer',
+    description: 'Save the candidate\'s answer to a screening question. Call this after each screening question is answered.',
+    type: 'webhook',
+    api_schema: {
+      url: toolUrl,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      request_body_schema: {
+        type: 'object',
+        properties: {
+          screen_id: { type: 'string', description: 'The screening session ID (auto-populated)' },
+          question_index: { type: 'integer', description: 'The 1-based index of the screening question' },
+          question_text: { type: 'string', description: 'The screening question that was asked' },
+          candidate_answer: { type: 'string', description: 'The candidate\'s answer summarized clearly' },
+          answer_quality: { type: 'string', enum: ['good', 'partial', 'poor', 'skipped'], description: 'Quality assessment of the answer' },
+        },
+        required: ['question_text', 'candidate_answer', 'answer_quality'],
+      },
+    },
+  };
+}
+
 // ── Tool registration helper ────────────────────────────────────────
 
 async function ensureSaveAnswerTool(apiKey: string, supabaseUrl: string): Promise<string | null> {
   try {
-    const toolUrl = `${supabaseUrl}/functions/v1/elevenlabs-tool-save-answer`;
     const response = await fetch('https://api.elevenlabs.io/v1/convai/tools', {
       method: 'POST',
       headers: {
         'xi-api-key': apiKey,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        tool_config: {
-          name: 'save_screening_answer',
-          description: 'Save the candidate\'s answer to a screening question. Call this after each screening question is answered.',
-          type: 'webhook',
-          api_schema: {
-            url: toolUrl,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            request_body_schema: {
-              type: 'object',
-              properties: {
-                screen_id: { type: 'string', description: 'The screening session ID (auto-populated)' },
-                question_index: { type: 'integer', description: 'The 1-based index of the screening question' },
-                question_text: { type: 'string', description: 'The screening question that was asked' },
-                candidate_answer: { type: 'string', description: 'The candidate\'s answer summarized clearly' },
-                answer_quality: { type: 'string', enum: ['good', 'partial', 'poor', 'skipped'], description: 'Quality assessment of the answer' },
-              },
-              required: ['question_text', 'candidate_answer', 'answer_quality'],
-            },
-          },
-        },
-      }),
+      body: JSON.stringify({ tool_config: getToolSchema(supabaseUrl) }),
     });
     if (!response.ok) {
       console.error('Failed to create tool:', await response.text());
@@ -104,6 +108,30 @@ async function ensureSaveAnswerTool(apiKey: string, supabaseUrl: string): Promis
   } catch (e) {
     console.error('Tool registration error:', e);
     return null;
+  }
+}
+
+// ── Tool update helper (PATCH existing tool schema) ─────────────────
+
+async function updateSaveAnswerTool(apiKey: string, toolId: string, supabaseUrl: string): Promise<void> {
+  try {
+    const schema = getToolSchema(supabaseUrl);
+    const response = await fetch(`https://api.elevenlabs.io/v1/convai/tools/${toolId}`, {
+      method: 'PATCH',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ tool_config: schema }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`Failed to update tool ${toolId}:`, errText);
+    } else {
+      console.log(`Tool ${toolId} schema updated successfully`);
+    }
+  } catch (e) {
+    console.error('Tool update error:', e);
   }
 }
 
@@ -412,9 +440,11 @@ serve(async (req) => {
         const kbDocIds = await manageKBDocuments(elevenLabsApiKey, role, supabase);
         console.log('KB docs created:', kbDocIds);
 
-        // 2. Ensure save_answer tool exists
+        // 2. Ensure save_answer tool exists and schema is up to date
         let toolId = role.tool_save_answer_id;
-        if (!toolId) {
+        if (toolId) {
+          await updateSaveAnswerTool(elevenLabsApiKey, toolId, supabaseUrl);
+        } else {
           toolId = await ensureSaveAnswerTool(elevenLabsApiKey, supabaseUrl);
           if (toolId) {
             await supabase.from('roles').update({ tool_save_answer_id: toolId }).eq('id', roleId);
@@ -546,9 +576,11 @@ serve(async (req) => {
           // Refresh KB documents
           const kbDocIds = await manageKBDocuments(elevenLabsApiKey, role, supabase);
 
-          // Ensure tool
+          // Ensure tool and update schema
           let toolId = role.tool_save_answer_id;
-          if (!toolId) {
+          if (toolId) {
+            await updateSaveAnswerTool(elevenLabsApiKey, toolId, supabaseUrl);
+          } else {
             toolId = await ensureSaveAnswerTool(elevenLabsApiKey, supabaseUrl);
             if (toolId) {
               await supabase.from('roles').update({ tool_save_answer_id: toolId }).eq('id', updates.roleId);
