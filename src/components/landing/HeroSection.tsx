@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight, Star } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { AudioWaveform } from './AudioWaveform';
 
 export function HeroSection() {
@@ -16,20 +16,6 @@ export function HeroSection() {
         transition={{ duration: 0.8 }}
         className="relative z-10 text-center max-w-6xl mx-auto"
       >
-        {/* Trust badge */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 mb-8"
-        >
-          <div className="flex gap-0.5">
-            {[...Array(5)].map((_, i) => (
-              <Star key={i} className="w-3 h-3 fill-emerald-400 text-emerald-400" />
-            ))}
-          </div>
-          <span className="text-xs text-white/70">Trusted by 100+ Recruiting Teams</span>
-        </motion.div>
 
         {/* Hero text */}
         <h1 className="text-5xl sm:text-7xl lg:text-[8rem] font-black tracking-tight leading-[0.9] text-white mb-6">
@@ -60,19 +46,6 @@ export function HeroSection() {
         </div>
       </motion.div>
 
-      {/* Floating card */}
-      <motion.div
-        initial={{ opacity: 0, x: 40 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: 0.6, duration: 0.8 }}
-        className="hidden xl:block absolute top-1/3 right-12 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 max-w-xs"
-        style={{ animation: 'float 6s ease-in-out infinite' }}
-      >
-        <div className="text-emerald-400 text-sm font-semibold mb-2">Live Now</div>
-        <div className="text-white text-sm">
-          247 candidates screened today across 12 roles with 94% call completion rate
-        </div>
-      </motion.div>
 
       {/* Waveform */}
       <motion.div
