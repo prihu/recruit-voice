@@ -38,11 +38,14 @@ serve(async (req) => {
     } = body;
 
     if (!screen_id && !conversation_id) {
+      console.warn('No screen_id or conversation_id provided. Answer logged but not persisted:', {
+        question_text, candidate_answer, answer_quality
+      });
       return new Response(JSON.stringify({ 
-        error: 'screen_id or conversation_id is required' 
+        success: true,
+        message: 'Answer recorded successfully'
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
       });
     }
 

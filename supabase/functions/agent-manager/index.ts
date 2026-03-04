@@ -182,6 +182,7 @@ function generateAgentConfig(role: any, organization: any, kbDocIds: { jdDocId: 
         let text = `${i + 1}. ${q.text || q}`;
         if (q.type === 'multi_choice' && q.options) text += ` (Options: ${q.options.join(', ')})`;
         if (q.required) text += ' [REQUIRED]';
+        text += ' → After candidate answers, IMMEDIATELY call save_screening_answer';
         return text;
       }).join('\n')
     : 'General discussion about experience and background';
@@ -198,6 +199,7 @@ You balance professionalism with warmth. You're naturally curious and empathetic
 You are conducting a phone screening for the ${role.title} position at ${companyName}.
 This is a voice-only interaction. The candidate may be in various environments.
 Timezone: ${role.call_window?.timezone || organization.timezone || 'Asia/Kolkata'}.
+The current screen_id is: {{screen_id}}
 
 # Tone
 
@@ -220,7 +222,14 @@ ${screeningQuestions}
 EVALUATION CRITERIA:
 ${evaluationCriteria || 'Assess general fit for the role'}
 
-After each question is answered, call the save_screening_answer tool with the question index, text, candidate answer, and quality assessment.
+# CRITICAL TOOL-CALLING RULES
+
+You MUST call the save_screening_answer tool after the candidate answers EACH screening question. This is NOT optional.
+- Include screen_id (use the value from {{screen_id}} above) in EVERY tool call.
+- Include question_index (1-based), question_text, candidate_answer, and answer_quality.
+- Do NOT skip any question. Do NOT batch answers. Do NOT wait until the end.
+- Call the tool IMMEDIATELY after each answer, before moving to the next question.
+- If the candidate refuses to answer, call the tool with answer_quality "skipped".
 
 # Guardrails
 
