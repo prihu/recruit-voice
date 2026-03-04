@@ -66,6 +66,7 @@ export default function RoleDetail() {
   
   // Form state
   const [title, setTitle] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [location, setLocation] = useState('');
   const [summary, setSummary] = useState('');
   const [status, setStatus] = useState<'draft' | 'active'>('draft');
@@ -102,6 +103,7 @@ export default function RoleDetail() {
       
       // Set form state from fetched role
       setTitle(role.title);
+      setCompanyName(role.company_name || '');
       setLocation(role.location);
       setSummary(role.summary || '');
       setStatus(role.status as 'draft' | 'active');
@@ -143,6 +145,7 @@ export default function RoleDetail() {
     try {
       const roleData = {
         title,
+        company_name: companyName || null,
         location,
         summary,
         status,
@@ -446,14 +449,26 @@ export default function RoleDetail() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="location">Location *</Label>
+                    <Label htmlFor="companyName">Company Name</Label>
                     <Input
-                      id="location"
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      placeholder="e.g., Bangalore, India"
+                      id="companyName"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      placeholder="e.g., Unicommerce eSolutions Pvt. Ltd."
                     />
+                    <p className="text-xs text-muted-foreground">
+                      The company name used by the AI agent during calls. Falls back to organization name if empty.
+                    </p>
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="location">Location *</Label>
+                  <Input
+                    id="location"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="e.g., Bangalore, India"
+                  />
                 </div>
 
                 <div className="space-y-2">
