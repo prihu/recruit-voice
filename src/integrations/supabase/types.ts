@@ -413,6 +413,7 @@ export type Database = {
           agent_last_used_at: string | null
           agent_sync_status: string | null
           call_window: Json | null
+          company_name: string | null
           created_at: string | null
           evaluation_criteria: string | null
           faq: Json | null
@@ -438,6 +439,7 @@ export type Database = {
           agent_last_used_at?: string | null
           agent_sync_status?: string | null
           call_window?: Json | null
+          company_name?: string | null
           created_at?: string | null
           evaluation_criteria?: string | null
           faq?: Json | null
@@ -463,6 +465,7 @@ export type Database = {
           agent_last_used_at?: string | null
           agent_sync_status?: string | null
           call_window?: Json | null
+          company_name?: string | null
           created_at?: string | null
           evaluation_criteria?: string | null
           faq?: Json | null

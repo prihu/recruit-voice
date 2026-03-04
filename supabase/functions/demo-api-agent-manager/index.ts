@@ -12,6 +12,7 @@ const DEMO_USER_ID = '59dc7810-80b7-4a31-806a-bb0533526fab';
 
 // Advanced agent configuration generator following ElevenLabs prompting guide
 function generateAgentConfig(role: any, organization: any) {
+  const companyName = role.company_name || organization.name;
   const questions = role.questions || [];
   const faqs = role.faq || [];
   const rules = role.rules || [];
@@ -53,7 +54,7 @@ function generateAgentConfig(role: any, organization: any) {
   // Build comprehensive prompt following ElevenLabs guide structure
   const prompt = `# Personality
 
-You are a professional phone screening specialist conducting interviews for ${organization.name}.
+You are a professional phone screening specialist conducting interviews for ${companyName}.
 You are friendly, attentive, and genuinely interested in understanding candidate qualifications and fit.
 You balance professionalism with warmth, creating a comfortable environment for candidates to share their experience.
 You're naturally curious and empathetic, actively listening to responses and asking relevant follow-up questions when appropriate.
@@ -61,7 +62,7 @@ You have deep knowledge about the role and organization, able to answer question
 
 # Environment
 
-You are conducting a phone screening interview for the ${role.title} position at ${organization.name}.
+You are conducting a phone screening interview for the ${role.title} position at ${companyName}.
 This is a voice-only interaction where the candidate cannot see you, requiring clear verbal communication.
 The conversation is taking place during business hours in ${role.call_window?.timezone || 'Asia/Kolkata'} timezone.
 The candidate may be in various environments (home, office, commuting), so be mindful of potential distractions.
@@ -154,11 +155,11 @@ Note-taking Framework:
 - Track any follow-up items or special considerations`;
 
   return {
-    name: `${role.title} - ${organization.name}`,
+    name: `${role.title} - ${companyName}`,
     conversation_config: {
       agent: {
         prompt: prompt,
-        first_message: `Hello {{candidate_name}}! This is a screening call from ${organization.name} regarding your application for the {{role_title}} position at {{location}}. I'm calling to learn more about your background and experience. Is this a good time to talk for about 10 to 15 minutes?`,
+        first_message: `Hello {{candidate_name}}! This is a screening call from ${companyName} regarding your application for the {{role_title}} position at {{location}}. I'm calling to learn more about your background and experience. Is this a good time to talk for about 10 to 15 minutes?`,
         language: "en",
         llm: {
           provider: "openai",

@@ -332,6 +332,7 @@ serve(async (req) => {
 });
 
 function generateAgentConfig(role: any, organization: any) {
+  const companyName = role.company_name || organization.name;
   const questions = role.questions || [];
   const faq = role.faq || [];
   const evaluationCriteria = role.evaluation_criteria || role.rules || '';
@@ -340,10 +341,10 @@ function generateAgentConfig(role: any, organization: any) {
   const keywords = extractKeywords(role);
   
   // Generate greeting based on context
-  const firstMessage = `Hello! This is an automated screening call from ${organization.name || 'our company'} for the ${role.title} position. Is this a good time to talk for about 10-15 minutes?`;
+  const firstMessage = `Hello! This is an automated screening call from ${companyName} for the ${role.title} position. Is this a good time to talk for about 10-15 minutes?`;
   
   // Generate comprehensive prompt
-  const prompt = `You are conducting a phone screening interview for ${role.title} at ${organization.name}.
+  const prompt = `You are conducting a phone screening interview for ${role.title} at ${companyName}.
 
 ROLE DETAILS:
 - Position: ${role.title}
@@ -378,7 +379,7 @@ INSTRUCTIONS:
 IMPORTANT: Keep the conversation natural and engaging. Listen actively and ask follow-up questions when appropriate.`;
 
   return {
-    name: `${role.title} - ${organization.name}`,
+    name: `${role.title} - ${companyName}`,
     conversation_config: {
       asr: {
         quality: "high",
