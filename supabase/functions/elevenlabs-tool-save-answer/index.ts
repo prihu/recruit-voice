@@ -7,6 +7,14 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .substring(0, 60);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -20,15 +28,13 @@ serve(async (req) => {
     const body = await req.json();
     console.log('Received save-answer tool call:', JSON.stringify(body));
 
-    // ElevenLabs server tools send data in a specific format
-    // The tool parameters are passed directly
     const {
       conversation_id,
       screen_id,
       question_index,
       question_text,
       candidate_answer,
-      answer_quality, // "good" | "partial" | "poor" | "skipped"
+      answer_quality,
     } = body;
 
     if (!screen_id && !conversation_id) {
@@ -40,7 +46,7 @@ serve(async (req) => {
       });
     }
 
-    // Find the screen by session_id (conversation_id) or screen_id
+    // Find the screen by screen_id first, then fall back to session_id (conversation_id)
     let screenQuery = supabase.from('screens').select('id, answers, questions_answered, total_questions');
     
     if (screen_id) {
@@ -53,8 +59,6 @@ serve(async (req) => {
 
     if (screenError || !screen) {
       console.error('Screen not found:', screenError);
-      // Return success to ElevenLabs even if we can't find the screen
-      // to avoid breaking the conversation flow
       return new Response(JSON.stringify({ 
         success: true,
         message: 'Answer noted (screen lookup pending)'
@@ -63,10 +67,14 @@ serve(async (req) => {
       });
     }
 
-    // Build updated answers object
+    // Build updated answers object using question_text as a stable key
+    // This prevents race conditions when multiple tool calls arrive concurrently
     const existingAnswers = (screen.answers as Record<string, any>) || {};
-    const effectiveIndex = question_index ?? (Object.keys(existingAnswers).length + 1);
-    const answerKey = `q_${effectiveIndex}`;
+    
+    // Use question_text-based key for stability; fall back to index if provided
+    const answerKey = question_text
+      ? `q_${slugify(question_text)}`
+      : `q_${question_index ?? (Object.keys(existingAnswers).length + 1)}`;
     
     existingAnswers[answerKey] = {
       question_index,
@@ -74,12 +82,11 @@ serve(async (req) => {
       candidate_answer,
       answer_quality,
       captured_at: new Date().toISOString(),
-      source: 'realtime_tool', // Distinguish from post-call extraction
+      source: 'realtime_tool',
     };
 
     const questionsAnswered = Object.keys(existingAnswers).length;
 
-    // Update the screen with the new answer
     const { error: updateError } = await supabase
       .from('screens')
       .update({
@@ -93,19 +100,17 @@ serve(async (req) => {
       console.error('Failed to update screen answers:', updateError);
     }
 
-    console.log(`Saved answer for screen ${screen.id}, question ${question_index}: ${answer_quality}`);
+    console.log(`Saved answer for screen ${screen.id}, key ${answerKey}: ${answer_quality}`);
 
-    // Return success - ElevenLabs expects a response the agent can use
     return new Response(JSON.stringify({ 
       success: true,
-      message: `Answer for question ${question_index} recorded successfully. Quality: ${answer_quality}.`
+      message: `Answer for "${question_text}" recorded successfully. Quality: ${answer_quality}.`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error: any) {
     console.error('Error in elevenlabs-tool-save-answer:', error);
-    // Always return 200 to ElevenLabs to avoid breaking the conversation
     return new Response(JSON.stringify({ 
       success: true,
       message: 'Answer noted'
