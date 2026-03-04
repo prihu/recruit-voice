@@ -304,6 +304,7 @@ serve(async (req) => {
               conversation_initiation_client_data: {
                 dynamic_variables: {
                   candidate_name: candidateName,
+                  screen_id: screenId,
                 },
                 custom_data: {
                   screen_id: screenId,

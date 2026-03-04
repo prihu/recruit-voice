@@ -83,6 +83,7 @@ async function ensureSaveAnswerTool(apiKey: string, supabaseUrl: string): Promis
             request_body_schema: {
               type: 'object',
               properties: {
+                screen_id: { type: 'string', description: 'The screening session ID (auto-populated)' },
                 question_index: { type: 'integer', description: 'The 1-based index of the screening question' },
                 question_text: { type: 'string', description: 'The screening question that was asked' },
                 candidate_answer: { type: 'string', description: 'The candidate\'s answer summarized clearly' },
