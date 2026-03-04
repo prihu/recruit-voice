@@ -2,11 +2,11 @@ import { motion } from 'framer-motion';
 import { Globe, Zap, Mic, Shield, Phone } from 'lucide-react';
 
 const reasons = [
-  { icon: Globe, title: 'Indian Voice Support', desc: 'Native Hindi, Tamil, Telugu, Kannada and more regional languages' },
-  { icon: Zap, title: 'Enterprise Scale', desc: 'Handle 10,000+ screening calls per day without breaking a sweat' },
-  { icon: Mic, title: '50+ AI Voices', desc: 'Professional, natural-sounding voices for every screening need' },
-  { icon: Shield, title: 'Secure & Compliant', desc: 'SOC2 Type II certified, GDPR ready, end-to-end encryption' },
-  { icon: Phone, title: 'Indian Phone Numbers', desc: 'Build local trust with +91 numbers and caller ID' },
+  { icon: Globe, title: 'Indian Voice Support', desc: 'Support for Hindi, Tamil, Telugu, Kannada and more regional languages' },
+  { icon: Zap, title: 'Built for Scale', desc: 'Handle bulk screening calls efficiently with concurrent call support' },
+  { icon: Mic, title: 'Natural AI Voices', desc: 'Professional, natural-sounding voices for screening conversations' },
+  { icon: Shield, title: 'Secure by Design', desc: 'Data encryption and privacy-first architecture' },
+  { icon: Phone, title: 'Indian Phone Numbers', desc: 'Local +91 numbers for familiar caller experience' },
 ];
 
 export function WhyChooseUs() {

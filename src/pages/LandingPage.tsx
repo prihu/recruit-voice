@@ -6,8 +6,8 @@ import { HeroSection } from '@/components/landing/HeroSection';
 import { FeatureCard } from '@/components/landing/FeatureCard';
 import { UseCaseMarquee } from '@/components/landing/UseCaseMarquee';
 import { WhyChooseUs } from '@/components/landing/WhyChooseUs';
-import { TestimonialCarousel } from '@/components/landing/TestimonialCarousel';
-import { DemoWidget } from '@/components/landing/DemoWidget';
+
+
 import { LandingFooter } from '@/components/landing/LandingFooter';
 
 const services = [
@@ -23,7 +23,7 @@ const services = [
     title: 'Bulk Screening',
     description: 'Import candidates via CSV and initiate hundreds of AI phone calls simultaneously',
     icon: Users,
-    features: ['CSV bulk import', '1000+ concurrent calls', 'Scheduled campaigns', 'Retry logic'],
+    features: ['CSV bulk import', 'Concurrent calls', 'Scheduled campaigns', 'Retry logic'],
   },
   {
     number: '03',
@@ -87,11 +87,11 @@ export default function LandingPage() {
 
       <UseCaseMarquee />
 
-      <DemoWidget />
+      
 
       <WhyChooseUs />
 
-      <TestimonialCarousel />
+      
 
       {/* CTA Section */}
       <section className="py-24 px-6">
@@ -104,7 +104,7 @@ export default function LandingPage() {
             <h2 className="text-4xl md:text-6xl font-black text-white mb-6">
               Ready to Transform<br />Your Hiring?
             </h2>
-            <p className="text-white/40 mb-10 text-lg">Start screening candidates with AI today. No credit card required.</p>
+            <p className="text-white/40 mb-10 text-lg">Start screening candidates with AI today.</p>
             <Link
               to="/dashboard"
               className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-10 py-4 rounded-xl text-lg transition-all"
