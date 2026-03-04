@@ -71,17 +71,53 @@ function getToolSchema(supabaseUrl: string) {
     api_schema: {
       url: toolUrl,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      request_headers: [],
       request_body_schema: {
         type: 'object',
-        properties: {
-          screen_id: { type: 'string', description: 'The screening session ID (auto-populated)' },
-          question_index: { type: 'integer', description: 'The 1-based index of the screening question' },
-          question_text: { type: 'string', description: 'The screening question that was asked' },
-          candidate_answer: { type: 'string', description: 'The candidate\'s answer summarized clearly' },
-          answer_quality: { type: 'string', enum: ['good', 'partial', 'poor', 'skipped'], description: 'Quality assessment of the answer' },
-        },
-        required: ['question_text', 'candidate_answer', 'answer_quality'],
+        properties: [
+          {
+            id: 'screen_id',
+            type: 'string',
+            value_type: 'dynamic_variable',
+            dynamic_variable: 'screen_id',
+            description: 'The screening session ID (auto-populated)',
+            required: false,
+          },
+          {
+            id: 'question_index',
+            type: 'number',
+            value_type: 'llm_prompt',
+            description: 'The 1-based index of the screening question',
+            required: false,
+          },
+          {
+            id: 'question_text',
+            type: 'string',
+            value_type: 'llm_prompt',
+            description: 'The screening question that was asked',
+            required: true,
+          },
+          {
+            id: 'candidate_answer',
+            type: 'string',
+            value_type: 'llm_prompt',
+            description: 'The candidate\'s answer summarized clearly',
+            required: true,
+          },
+          {
+            id: 'answer_quality',
+            type: 'string',
+            value_type: 'llm_prompt',
+            description: 'Quality assessment of the answer: good, partial, poor, or skipped',
+            enum: ['good', 'partial', 'poor', 'skipped'],
+            required: true,
+          },
+        ],
+      },
+    },
+    dynamic_variables: {
+      dynamic_variable_placeholders: {
+        screen_id: 'placeholder_screen_id',
       },
     },
   };
