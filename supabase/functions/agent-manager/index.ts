@@ -72,22 +72,24 @@ async function ensureSaveAnswerTool(supabaseUrl: string): Promise<string | null>
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        name: 'save_screening_answer',
-        description: 'Save the candidate\'s answer to a screening question. Call this after each screening question is answered.',
-        type: 'webhook',
-        api_schema: {
-          url: toolUrl,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          request_body: {
-            type: 'object',
-            properties: {
-              question_index: { type: 'integer', description: 'The 1-based index of the screening question' },
-              question_text: { type: 'string', description: 'The screening question that was asked' },
-              candidate_answer: { type: 'string', description: 'The candidate\'s answer summarized clearly' },
-              answer_quality: { type: 'string', enum: ['good', 'partial', 'poor', 'skipped'], description: 'Quality assessment of the answer' },
+        tool_config: {
+          name: 'save_screening_answer',
+          description: 'Save the candidate\'s answer to a screening question. Call this after each screening question is answered.',
+          type: 'webhook',
+          api_schema: {
+            url: toolUrl,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            request_body_schema: {
+              type: 'object',
+              properties: {
+                question_index: { type: 'integer', description: 'The 1-based index of the screening question' },
+                question_text: { type: 'string', description: 'The screening question that was asked' },
+                candidate_answer: { type: 'string', description: 'The candidate\'s answer summarized clearly' },
+                answer_quality: { type: 'string', enum: ['good', 'partial', 'poor', 'skipped'], description: 'Quality assessment of the answer' },
+              },
+              required: ['question_index', 'question_text', 'candidate_answer', 'answer_quality'],
             },
-            required: ['question_index', 'question_text', 'candidate_answer', 'answer_quality'],
           },
         },
       }),
@@ -195,10 +197,10 @@ After each question is answered, call the save_screening_answer tool with the qu
 
   const firstMessage = `Hello! This is a screening call from ${companyName} for the ${role.title} position. Is this a good time to talk for about 10-15 minutes?`;
 
-  // Build knowledge_base array for agent config
-  const knowledgeBase: string[] = [];
-  if (kbDocIds.jdDocId) knowledgeBase.push(kbDocIds.jdDocId);
-  if (kbDocIds.faqDocId) knowledgeBase.push(kbDocIds.faqDocId);
+  // Build knowledge_base array (must be KnowledgeBaseLocator objects)
+  const knowledgeBase: any[] = [];
+  if (kbDocIds.jdDocId) knowledgeBase.push({ type: 'text', name: `JD - ${role.title}`, id: kbDocIds.jdDocId });
+  if (kbDocIds.faqDocId) knowledgeBase.push({ type: 'text', name: `FAQ - ${role.title}`, id: kbDocIds.faqDocId });
 
   // Build tool_ids array
   const toolIds: string[] = [];
