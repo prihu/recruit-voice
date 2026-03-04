@@ -243,7 +243,7 @@ serve(async (req) => {
         // Preflight: validate the phone number ID exists in ElevenLabs
         console.log('Validating agent_phone_number_id:', agentPhoneNumberId);
         const validateResponse = await fetch(
-          `https://api.elevenlabs.io/v1/convai/twilio/phone-numbers/${agentPhoneNumberId}`,
+          `https://api.elevenlabs.io/v1/convai/phone-numbers/${agentPhoneNumberId}`,
           {
             method: 'GET',
             headers: { 'xi-api-key': ELEVENLABS_API_KEY },

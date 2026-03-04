@@ -346,13 +346,18 @@ serve(async (req) => {
         if (!phoneNumberId) {
           return new Response(JSON.stringify({ valid: false, error: 'Phone number ID is required' }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 400,
+          });
+        }
+
+        if (!elevenLabsApiKey) {
+          return new Response(JSON.stringify({ valid: false, error: 'ELEVENLABS_API_KEY is not configured' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
 
         try {
           const validateRes = await fetch(
-            `https://api.elevenlabs.io/v1/convai/twilio/phone-numbers/${phoneNumberId}`,
+            `https://api.elevenlabs.io/v1/convai/phone-numbers/${phoneNumberId}`,
             { headers: { 'xi-api-key': elevenLabsApiKey } }
           );
 
@@ -360,17 +365,15 @@ serve(async (req) => {
             return new Response(JSON.stringify({ valid: true }), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
-          } else {
-            const errText = await validateRes.text();
-            return new Response(JSON.stringify({ valid: false, error: `Phone number ID not found in ElevenLabs: ${errText}` }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              status: 400,
-            });
           }
+
+          const errText = await validateRes.text();
+          return new Response(JSON.stringify({ valid: false, error: `Phone number ID not found in ElevenLabs: ${errText}` }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
         } catch (e) {
           return new Response(JSON.stringify({ valid: false, error: e.message }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 500,
           });
         }
       }
