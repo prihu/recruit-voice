@@ -21,6 +21,7 @@ export interface Role {
   voice_agent_id?: string;
   agent_sync_status?: string;
   voice_enabled?: boolean;
+  organization_id?: string;
 }
 
 export interface ScreeningQuestion {

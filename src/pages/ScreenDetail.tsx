@@ -115,7 +115,8 @@ export default function ScreenDetail() {
         updatedAt: new Date(roleData.updated_at),
         voice_agent_id: roleData.voice_agent_id,
         agent_sync_status: roleData.agent_sync_status,
-        voice_enabled: roleData.voice_enabled
+        voice_enabled: roleData.voice_enabled,
+        organization_id: roleData.organization_id
       };
 
       const transformedCandidate: Candidate = {
