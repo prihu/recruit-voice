@@ -2,48 +2,138 @@
 
 ## Root Cause
 
-The tool is not being called because **the old tool (tool_6801kjvyc047ezsrvx4xm2vkzk1z) still has the old schema** where `question_index` was required. The update flow in both `demo-api-agent-manager` and `agent-manager` has this logic:
-
-```typescript
-let toolId = role.tool_save_answer_id;
-if (!toolId) {                              // <-- SKIPS if tool already exists
-  toolId = await ensureSaveAnswerTool(...);
+The tool schema format sent by `getToolSchema()` uses **standard JSON Schema** format:
+```json
+{
+  "properties": {
+    "screen_id": { "type": "string", "description": "..." },
+    "question_text": { "type": "string", "description": "..." }
+  },
+  "required": ["question_text", "candidate_answer", "answer_quality"]
 }
 ```
 
-Since the role already has `tool_save_answer_id` stored, the code **reuses the old tool ID** without updating its schema. ElevenLabs validates tool parameters before making the webhook call, and since the old tool still requires `question_index` (which the LLM doesn't reliably provide), the call is silently rejected at the platform level — the webhook is never hit, which is why there are zero logs for `elevenlabs-tool-save-answer`.
+But ElevenLabs uses a **custom array format** (confirmed by the uploaded `save_screening_answer.json`):
+```json
+{
+  "properties": [
+    {
+      "id": "screen_id",
+      "type": "string",
+      "value_type": "dynamic_variable",
+      "dynamic_variable": "screen_id",
+      "description": "...",
+      "required": false
+    },
+    {
+      "id": "question_text",
+      "type": "string",
+      "value_type": "llm_prompt",
+      "description": "...",
+      "required": true
+    }
+  ]
+}
+```
 
-## Fix
+Key differences:
+- `properties` is an **array** not an object
+- Each property has `id` (name), `value_type` (`llm_prompt` or `dynamic_variable`), and per-property `required`
+- `screen_id` must use `value_type: "dynamic_variable"` with `dynamic_variable: "screen_id"` so ElevenLabs auto-injects it from `conversation_initiation_client_data.dynamic_variables`
+- There is no top-level `required` array
 
-### 1. Always update (PATCH) the existing tool schema when updating an agent
+This means every PATCH and POST we've done either silently failed or created a broken tool config. The existing tool (tool_6801kjvyc047ezsrvx4xm2vkzk1z) still has the original schema with `question_index: required: true`, causing ElevenLabs to reject every tool call before it reaches the webhook.
 
-Instead of only creating a tool when none exists, also PATCH the existing tool to update its schema. Add a new `updateSaveAnswerTool()` function that calls `PATCH https://api.elevenlabs.io/v1/convai/tools/{tool_id}` with the current schema.
+Additionally, `process-bulk-screenings` passes `screen_id` in `custom_data` but NOT in `dynamic_variables`, so even with the correct schema, the tool wouldn't receive `screen_id`.
 
-### 2. Update both agent-manager files
+## Plan
 
-In `supabase/functions/demo-api-agent-manager/index.ts` and `supabase/functions/agent-manager/index.ts`:
-- Add `updateSaveAnswerTool(apiKey, toolId)` function
-- Change the tool logic from "create only if missing" to "create if missing, PATCH if exists"
+### 1. Fix tool schema format in both agent-manager files
+
+In `supabase/functions/agent-manager/index.ts` and `supabase/functions/demo-api-agent-manager/index.ts`, rewrite `getToolSchema()` to use ElevenLabs' native format:
 
 ```typescript
-let toolId = role.tool_save_answer_id;
-if (toolId) {
-  // Update existing tool schema
-  await updateSaveAnswerTool(apiKey, toolId, supabaseUrl);
-} else {
-  // Create new tool
-  toolId = await ensureSaveAnswerTool(apiKey, supabaseUrl);
-  if (toolId) {
-    await supabase.from('roles').update({ tool_save_answer_id: toolId }).eq('id', roleId);
-  }
+function getToolSchema(supabaseUrl: string) {
+  return {
+    name: 'save_screening_answer',
+    description: 'Save the candidate\'s answer to a screening question. Call this after each screening question is answered.',
+    type: 'webhook',
+    api_schema: {
+      url: `${supabaseUrl}/functions/v1/elevenlabs-tool-save-answer`,
+      method: 'POST',
+      request_headers: [],
+      request_body_schema: {
+        type: 'object',
+        properties: [
+          {
+            id: 'screen_id',
+            type: 'string',
+            value_type: 'dynamic_variable',
+            dynamic_variable: 'screen_id',
+            description: 'The screening session ID (auto-populated)',
+            required: false,
+          },
+          {
+            id: 'question_index',
+            type: 'number',
+            value_type: 'llm_prompt',
+            description: 'The 1-based index of the screening question',
+            required: false,
+          },
+          {
+            id: 'question_text',
+            type: 'string',
+            value_type: 'llm_prompt',
+            description: 'The screening question that was asked',
+            required: true,
+          },
+          {
+            id: 'candidate_answer',
+            type: 'string',
+            value_type: 'llm_prompt',
+            description: 'The candidate\'s answer summarized clearly',
+            required: true,
+          },
+          {
+            id: 'answer_quality',
+            type: 'string',
+            value_type: 'llm_prompt',
+            description: 'Quality assessment of the answer',
+            enum: ['good', 'partial', 'poor', 'skipped'],
+            required: true,
+          },
+        ],
+      },
+    },
+    dynamic_variables: {
+      dynamic_variable_placeholders: {
+        screen_id: 'placeholder_screen_id',
+      },
+    },
+  };
+}
+```
+
+### 2. Add `screen_id` to `dynamic_variables` in bulk call initiation
+
+In `supabase/functions/process-bulk-screenings/index.ts`, add `screen_id` to the `dynamic_variables` object (currently only `candidate_name`, `role_title`, `location` are passed):
+
+```typescript
+dynamic_variables: {
+  candidate_name: candidate.name,
+  role_title: role.title,
+  location: role.location,
+  screen_id: screen.id,  // <-- add this
 }
 ```
 
 ### 3. Deploy and re-provision
 
-After deploying the updated edge functions, trigger an agent update (via the Test tab "Update Agent" button) to push the corrected tool schema to ElevenLabs.
+After deploying, click "Update Agent" on the role's Test tab. This will PATCH the existing tool with the corrected schema format and update the agent.
 
 ## Files to change
-- `supabase/functions/demo-api-agent-manager/index.ts` — add `updateSaveAnswerTool`, change tool logic in create/update cases
-- `supabase/functions/agent-manager/index.ts` — same changes
+
+- `supabase/functions/agent-manager/index.ts` — fix `getToolSchema()` format
+- `supabase/functions/demo-api-agent-manager/index.ts` — same
+- `supabase/functions/process-bulk-screenings/index.ts` — add `screen_id` to `dynamic_variables`
 
