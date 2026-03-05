@@ -2,36 +2,74 @@
 
 ## What
 
-Add a warning in the `BulkScreeningModal` that shows which candidates already have active screens for the selected role, before the user clicks "Start Screening." Also update the backend to pre-filter duplicates and return skip info in the response.
+Redesign the landing page to match the platform's neobrutalist design system: light background, black borders, sharp corners (0 radius), bold box shadows, Space Grotesk typography — instead of the current dark theme with rounded corners and translucent elements.
 
-## How
+## Current vs Target
 
-### 1. Backend: Pre-check and return skipped candidates (`demo-api-bulk-screenings/index.ts`)
+The platform uses:
+- Light `bg-background` with `bg-gradient-subtle`
+- Black borders (`border-border`)
+- Sharp corners (`rounded-lg` = 0rem)
+- Bold box shadows (`shadow-sm` = `3px 3px 0px 0px #000`)
+- `hsl(var(--primary))` = black, emerald only for success states
+- Space Grotesk font
 
-Before inserting, query existing active screens for the role+candidates combo. Filter them out, and include `skipped_candidates` count and a `warning` message in the response.
+The landing page currently uses:
+- Dark `bg-[#0a0a0a]` with white text
+- Translucent borders (`border-white/[0.06]`)
+- Rounded corners (`rounded-2xl`)
+- No box shadows
+- Emerald-500 as primary accent
+- Custom dark navbar/footer
 
-### 2. Frontend: Check for active screens when role is selected (`BulkScreeningModal.tsx`)
+## Changes
 
-- Add a new function that queries existing screens for the selected role via `demoAPI.getScreenings()` (or a direct supabase query)
-- When the role changes, fetch active screens for that role and store the set of candidate IDs that already have active screens
-- Show an `Alert` warning banner listing how many candidates already have active screens, and visually mark those candidates in the list (e.g., a badge saying "Already screened")
-- Auto-deselect candidates with active screens, or at minimum warn the user
+### `src/pages/LandingPage.tsx`
+- Remove `landing-dark bg-[#0a0a0a] text-white` wrapper; use `bg-background text-foreground`
+- Update mission section, CTA section to use platform colors (`bg-primary text-primary-foreground`, `border`, `shadow-md`)
+- Replace all hardcoded dark-theme colors with CSS variable-based classes
 
-### Changes
+### `src/components/landing/HeroSection.tsx`
+- Remove dark radial gradients and emerald glows
+- Use `bg-gradient-primary` for accent areas
+- Replace `text-emerald-400` with `text-primary` or keep as accent via `text-success`
+- Use neobrutalist button styles: `bg-primary text-primary-foreground border shadow-sm`
+- Style the waveform section to fit light theme
 
-**`src/components/BulkScreeningModal.tsx`**:
-- Add state: `activeCandidateIds: Set<string>` 
-- Add `useEffect` on `selectedRole` change: call `demoAPI.getScreenings()`, filter for screens matching the role with status `pending`/`in_progress`/`scheduled`/`completed`, extract candidate IDs into the set
-- In the candidate list, show a "Active screen" badge next to candidates in the set
-- Above the candidate list, show a warning Alert when `activeCandidateIds` intersects with `selectedCandidates`
-- Filter out active-screen candidates from the count sent to the API (or let the backend handle it with the existing `ignoreDuplicates`)
+### `src/components/landing/LandingNavbar.tsx`
+- Match the platform header: `glass border-b`, `bg-background` when scrolled
+- Replace emerald logo background with `bg-gradient-primary`
+- Use `text-foreground`, `text-muted-foreground` for links
+- Neobrutalist CTA buttons with borders and shadows
 
-**`supabase/functions/demo-api-bulk-screenings/index.ts`**:
-- Before upsert, query existing screens for the role + candidate IDs
-- Filter out already-screened candidates from `screeningData`
-- Include `skipped_count` and `warning` in the JSON response
+### `src/components/landing/FeatureCard.tsx`
+- Use `bg-card border shadow-sm hover:shadow-md` instead of translucent dark cards
+- Replace emerald icon backgrounds with `bg-muted`
+- Use `text-foreground`, `text-muted-foreground` for text
+
+### `src/components/landing/WhyChooseUs.tsx`
+- Same card treatment as FeatureCard: light cards, black borders, sharp corners, shadows
+
+### `src/components/landing/UseCaseMarquee.tsx`
+- Use `border-y border-border` instead of `border-white/5`
+- Text in `text-muted-foreground` or `text-foreground/10`
+- Dot accent: `bg-primary` instead of `bg-emerald-500/40`
+
+### `src/components/landing/AudioWaveform.tsx`
+- Change gradient from emerald to primary colors (`from-primary to-primary/60`)
+
+### `src/components/landing/LandingFooter.tsx`
+- Light background, `border-t border-border`
+- Use `text-foreground`, `text-muted-foreground` for links
+- Match platform header logo style
 
 ### Files to change
-- `src/components/BulkScreeningModal.tsx`
-- `supabase/functions/demo-api-bulk-screenings/index.ts`
+- `src/pages/LandingPage.tsx`
+- `src/components/landing/HeroSection.tsx`
+- `src/components/landing/LandingNavbar.tsx`
+- `src/components/landing/FeatureCard.tsx`
+- `src/components/landing/WhyChooseUs.tsx`
+- `src/components/landing/UseCaseMarquee.tsx`
+- `src/components/landing/AudioWaveform.tsx`
+- `src/components/landing/LandingFooter.tsx`
 
