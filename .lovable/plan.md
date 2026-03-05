@@ -2,48 +2,36 @@
 
 ## What
 
-Add auto-sync of the ElevenLabs voice agent whenever a role is updated (PUT handler), so changes to questions, JD, FAQ, or evaluation criteria are automatically reflected in the agent's prompt and knowledge base.
+Add a warning in the `BulkScreeningModal` that shows which candidates already have active screens for the selected role, before the user clicks "Start Screening." Also update the backend to pre-filter duplicates and return skip info in the response.
 
 ## How
 
-Same fire-and-forget pattern as the POST handler, but using `action: 'create'` (which is idempotent — it updates the existing agent if one already exists).
+### 1. Backend: Pre-check and return skipped candidates (`demo-api-bulk-screenings/index.ts`)
+
+Before inserting, query existing active screens for the role+candidates combo. Filter them out, and include `skipped_candidates` count and a `warning` message in the response.
+
+### 2. Frontend: Check for active screens when role is selected (`BulkScreeningModal.tsx`)
+
+- Add a new function that queries existing screens for the selected role via `demoAPI.getScreenings()` (or a direct supabase query)
+- When the role changes, fetch active screens for that role and store the set of candidate IDs that already have active screens
+- Show an `Alert` warning banner listing how many candidates already have active screens, and visually mark those candidates in the list (e.g., a badge saying "Already screened")
+- Auto-deselect candidates with active screens, or at minimum warn the user
 
 ### Changes
 
-**`supabase/functions/api-roles/index.ts`** — PUT handler (after line 141, before the return):
-```typescript
-// Auto-sync voice agent (fire-and-forget)
-try {
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  await fetch(`${supabaseUrl}/functions/v1/agent-manager`, {
-    method: 'POST',
-    headers: {
-      'Authorization': req.headers.get('Authorization')!,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ action: 'create', roleId }),
-  });
-} catch (e) {
-  console.error('Auto-sync agent failed (non-blocking):', e);
-}
-```
+**`src/components/BulkScreeningModal.tsx`**:
+- Add state: `activeCandidateIds: Set<string>` 
+- Add `useEffect` on `selectedRole` change: call `demoAPI.getScreenings()`, filter for screens matching the role with status `pending`/`in_progress`/`scheduled`/`completed`, extract candidate IDs into the set
+- In the candidate list, show a "Active screen" badge next to candidates in the set
+- Above the candidate list, show a warning Alert when `activeCandidateIds` intersects with `selectedCandidates`
+- Filter out active-screen candidates from the count sent to the API (or let the backend handle it with the existing `ignoreDuplicates`)
 
-**`supabase/functions/demo-api-roles/index.ts`** — PUT handler (after line 216, before the return):
-```typescript
-// Auto-sync voice agent (fire-and-forget)
-try {
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  await fetch(`${supabaseUrl}/functions/v1/demo-api-agent-manager`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'create', roleId }),
-  });
-} catch (e) {
-  console.error('Auto-sync agent failed (non-blocking):', e);
-}
-```
+**`supabase/functions/demo-api-bulk-screenings/index.ts`**:
+- Before upsert, query existing screens for the role + candidate IDs
+- Filter out already-screened candidates from `screeningData`
+- Include `skipped_count` and `warning` in the JSON response
 
 ### Files to change
-- `supabase/functions/api-roles/index.ts`
-- `supabase/functions/demo-api-roles/index.ts`
+- `src/components/BulkScreeningModal.tsx`
+- `supabase/functions/demo-api-bulk-screenings/index.ts`
 
