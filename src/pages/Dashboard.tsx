@@ -71,9 +71,18 @@ export default function Dashboard() {
   return (
     <AppLayout>
       <div className="space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">Overview of your recruitment screening activity.</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">
+              Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 17 ? 'Afternoon' : 'Evening'}
+            </h1>
+            <p className="text-muted-foreground">Here's what's happening with your screening pipeline.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/roles"><Button variant="outline" size="sm"><FileText className="w-4 h-4 mr-1" /> New Role</Button></Link>
+            <Link to="/candidates/import"><Button variant="outline" size="sm"><Users className="w-4 h-4 mr-1" /> Import Candidates</Button></Link>
+            <Link to="/screens"><Button variant="outline" size="sm"><Phone className="w-4 h-4 mr-1" /> View Screens</Button></Link>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-4">
