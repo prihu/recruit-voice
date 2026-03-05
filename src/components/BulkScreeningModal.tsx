@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Phone, Clock, Calendar, DollarSign, Users, Loader2, Search } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Phone, Clock, Calendar, DollarSign, Users, Loader2, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
@@ -39,6 +39,8 @@ export function BulkScreeningModal({
   const [scheduledTime, setScheduledTime] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeCandidateIds, setActiveCandidateIds] = useState<Set<string>>(new Set());
+  const [loadingActiveScreens, setLoadingActiveScreens] = useState(false);
   const { toast } = useToast();
   const demoAPI = useDemoAPI();
 
@@ -54,6 +56,33 @@ export function BulkScreeningModal({
       setSelectedRole(preSelectedRole);
     }
   }, [preSelectedRole]);
+
+  // Fetch active screens when role changes
+  useEffect(() => {
+    if (!selectedRole) {
+      setActiveCandidateIds(new Set());
+      return;
+    }
+    const fetchActiveScreens = async () => {
+      setLoadingActiveScreens(true);
+      try {
+        const result = await demoAPI.getScreenings();
+        const screens = result?.screens || result || [];
+        const activeStatuses = ['pending', 'in_progress', 'scheduled', 'completed'];
+        const activeIds = new Set<string>(
+          screens
+            .filter((s: any) => s.role_id === selectedRole && activeStatuses.includes(s.status))
+            .map((s: any) => s.candidate_id)
+        );
+        setActiveCandidateIds(activeIds);
+      } catch (error) {
+        console.error('Error fetching active screens:', error);
+      } finally {
+        setLoadingActiveScreens(false);
+      }
+    };
+    fetchActiveScreens();
+  }, [selectedRole]);
 
   const fetchRoles = async () => {
     try {
@@ -206,10 +235,23 @@ export function BulkScreeningModal({
               </Select>
             </div>
 
+            {/* Active screens warning */}
+            {selectedRole && activeCandidateIds.size > 0 && (
+              <Alert variant="destructive" className="border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 [&>svg]:text-yellow-600">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>{activeCandidateIds.size} candidate(s)</strong> already have active screens for this role
+                  {selectedCandidates.filter(id => activeCandidateIds.has(id)).length > 0 && (
+                    <span> — <strong>{selectedCandidates.filter(id => activeCandidateIds.has(id)).length}</strong> of your selected candidates will be skipped</span>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Candidate Selection */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Select Candidates ({selectedCandidates.length} selected)</Label>
+                <Label>Select Candidates ({selectedCandidates.length} selected{selectedCandidates.filter(id => activeCandidateIds.has(id)).length > 0 ? `, ${selectedCandidates.filter(id => activeCandidateIds.has(id)).length} will be skipped` : ''})</Label>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -243,11 +285,18 @@ export function BulkScreeningModal({
                           htmlFor={candidate.id}
                           className="flex-1 cursor-pointer font-normal"
                         >
-                          <div>
-                            <div className="font-medium">{candidate.name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {candidate.email} • {candidate.phone}
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <div className="font-medium">{candidate.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {candidate.email} • {candidate.phone}
+                              </div>
                             </div>
+                            {activeCandidateIds.has(candidate.id) && (
+                              <Badge variant="outline" className="text-yellow-600 border-yellow-500/50 text-[10px] shrink-0">
+                                Active screen
+                              </Badge>
+                            )}
                           </div>
                         </Label>
                       </div>

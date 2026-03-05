@@ -367,8 +367,48 @@ serve(async (req) => {
         throw bulkOpError;
       }
       
-      // Create screening records for each candidate
-      const screeningData = candidateIds.map((candidateId: string) => ({
+      // Pre-check: find candidates that already have active screens for this role
+      const { data: existingScreens } = await supabase
+        .from('screens')
+        .select('candidate_id')
+        .eq('role_id', roleId)
+        .in('candidate_id', candidateIds)
+        .in('status', ['pending', 'in_progress', 'scheduled', 'completed']);
+
+      const existingCandidateIds = new Set(
+        (existingScreens || []).map((s: any) => s.candidate_id)
+      );
+      
+      // Filter out candidates that already have active screens
+      const newCandidateIds = candidateIds.filter(
+        (id: string) => !existingCandidateIds.has(id)
+      );
+      const skippedCount = candidateIds.length - newCandidateIds.length;
+
+      if (skippedCount > 0) {
+        console.log(`Skipping ${skippedCount} candidates with existing active screens`);
+      }
+
+      if (newCandidateIds.length === 0) {
+        // All candidates already have active screens - update bulk op and return
+        await supabase
+          .from('bulk_operations')
+          .update({ total_count: 0, status: 'completed', completed_at: new Date().toISOString() })
+          .eq('id', bulkOp.id);
+
+        return new Response(
+          JSON.stringify({
+            ...bulkOp,
+            screens: [],
+            skipped_count: skippedCount,
+            warning: `All ${skippedCount} candidate(s) already have active screens for this role. No new screenings created.`
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 201 }
+        );
+      }
+
+      // Create screening records only for new candidates
+      const screeningData = newCandidateIds.map((candidateId: string) => ({
         role_id: roleId,
         candidate_id: candidateId,
         user_id: demoUserId,
@@ -385,10 +425,7 @@ serve(async (req) => {
       
       const { data: screens, error: screensError } = await supabase
         .from('screens')
-        .upsert(screeningData, {
-          onConflict: 'candidate_id,role_id',
-          ignoreDuplicates: true,
-        })
+        .insert(screeningData)
         .select();
       
       if (screensError) {
@@ -396,13 +433,11 @@ serve(async (req) => {
         throw screensError;
       }
 
-      // Update bulk operation total_count to reflect actual inserts (excluding duplicates)
-      if (screens && screens.length < candidateIds.length) {
-        const skipped = candidateIds.length - screens.length;
-        console.log(`Skipped ${skipped} duplicate candidate-role combinations`);
+      // Update bulk operation total_count to reflect actual inserts
+      if (newCandidateIds.length < candidateIds.length) {
         await supabase
           .from('bulk_operations')
-          .update({ total_count: screens.length })
+          .update({ total_count: newCandidateIds.length })
           .eq('id', bulkOp.id);
       }
       
@@ -446,11 +481,17 @@ serve(async (req) => {
         console.log('Successfully triggered bulk processing for operation:', bulkOp.id);
       }
       
+      const responseBody: any = {
+        ...bulkOp,
+        screens,
+        skipped_count: skippedCount,
+      };
+      if (skippedCount > 0) {
+        responseBody.warning = `${skippedCount} candidate(s) already had active screens and were skipped.`;
+      }
+
       return new Response(
-        JSON.stringify({
-          ...bulkOp,
-          screens
-        }),
+        JSON.stringify(responseBody),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 201 }
       );
     }
