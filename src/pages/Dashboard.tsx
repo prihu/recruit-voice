@@ -71,21 +71,9 @@ export default function Dashboard() {
   return (
     <AppLayout>
       <div className="space-y-8">
-        <div className="relative overflow-hidden rounded-xl bg-gradient-primary p-8 text-primary-foreground">
-          <div className="relative z-10">
-            <Badge className="mb-4 bg-primary-foreground/20 text-primary-foreground border-primary-foreground/20">
-              AI-Powered Recruitment
-            </Badge>
-            <h1 className="text-4xl font-bold mb-4">Automate Your Phone Screening Process</h1>
-            <p className="text-xl mb-6 text-primary-foreground/90 max-w-2xl">
-              Screen candidates efficiently with AI-powered voice calls.
-            </p>
-            <div className="flex gap-3">
-              <Link to="/roles"><Button size="lg" variant="secondary">Get Started <ArrowRight className="w-4 h-4 ml-2" /></Button></Link>
-              <Link to="/screens"><Button size="lg" variant="outline" className="bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/20">View Screens</Button></Link>
-            </div>
-          </div>
-          <div className="absolute top-0 right-0 w-64 h-64 bg-primary-foreground/10 rounded-full blur-3xl" />
+        <div>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-muted-foreground">Overview of your recruitment screening activity.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-4">
