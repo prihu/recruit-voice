@@ -331,6 +331,22 @@ function extractKeywords(role: any): string[] {
   return [...new Set(keywords)];
 }
 
+// ── Phone number reassignment helper ────────────────────────────────
+
+async function reassignPhoneNumber(apiKey: string, phoneNumberId: string, agentId: string) {
+  try {
+    const res = await fetch(`https://api.elevenlabs.io/v1/convai/phone-numbers/${phoneNumberId}`, {
+      method: 'PATCH',
+      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+    if (!res.ok) console.error('Failed to reassign phone number:', await res.text());
+    else console.log(`Phone number ${phoneNumberId} reassigned to agent ${agentId}`);
+  } catch (e) {
+    console.error('Phone number reassignment error:', e);
+  }
+}
+
 // Helper to ensure demo setup is complete
 async function ensureDemoSetup(supabase: any) {
   const { data: existingMember } = await supabase
@@ -551,6 +567,15 @@ serve(async (req) => {
           agent_created_at: new Date().toISOString(),
           agent_error_message: null,
         }).eq('id', roleId).eq('organization_id', DEMO_ORG_ID);
+
+        // 5. Reassign phone number to new agent
+        const twilioConfig = organization.twilio_config as any;
+        const agentPhoneNumberId = twilioConfig?.agent_phone_number_id;
+        if (agentPhoneNumberId) {
+          await reassignPhoneNumber(elevenLabsApiKey, agentPhoneNumberId, createdAgentId);
+        } else {
+          console.log('No agent_phone_number_id in org twilio_config, skipping phone reassignment');
+        }
 
         return new Response(JSON.stringify({
           success: true,
