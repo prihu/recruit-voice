@@ -6,8 +6,6 @@ import { HeroSection } from '@/components/landing/HeroSection';
 import { FeatureCard } from '@/components/landing/FeatureCard';
 import { UseCaseMarquee } from '@/components/landing/UseCaseMarquee';
 import { WhyChooseUs } from '@/components/landing/WhyChooseUs';
-
-
 import { LandingFooter } from '@/components/landing/LandingFooter';
 
 const services = [
@@ -43,7 +41,7 @@ const services = [
 
 export default function LandingPage() {
   return (
-    <div className="landing-dark bg-[#0a0a0a] min-h-screen text-white">
+    <div className="bg-background min-h-screen text-foreground">
       <LandingNavbar />
       <HeroSection />
 
@@ -55,15 +53,15 @@ export default function LandingPage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <span className="inline-block text-xs uppercase tracking-[0.3em] text-emerald-400 border border-emerald-500/20 px-4 py-1.5 rounded-full mb-8">
+            <span className="inline-block text-xs uppercase tracking-[0.3em] text-foreground font-bold border-2 border-border px-4 py-1.5 shadow-xs mb-8">
               Our Mission
             </span>
-            <h2 className="text-3xl md:text-5xl font-bold text-white/90 leading-tight mb-8">
+            <h2 className="text-3xl md:text-5xl font-bold text-foreground leading-tight mb-8">
               Powering India's fastest-growing companies with{' '}
-              <span className="text-emerald-400">AI-powered phone screening</span>.
+              <span className="text-success">AI-powered phone screening</span>.
               Screen faster. Hire smarter.
             </h2>
-            <a href="#features" className="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300 transition-colors font-medium">
+            <a href="#features" className="inline-flex items-center gap-2 text-foreground hover:text-muted-foreground transition-colors font-bold border-2 border-border px-5 py-2 shadow-xs hover:shadow-sm">
               Explore Features <ArrowRight className="w-4 h-4" />
             </a>
           </motion.div>
@@ -74,8 +72,8 @@ export default function LandingPage() {
       <section id="features" className="py-24 px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
-            <span className="text-xs uppercase tracking-[0.3em] text-emerald-400 mb-4 block">Our Services</span>
-            <h2 className="text-4xl md:text-5xl font-black text-white">Everything You Need</h2>
+            <span className="text-xs uppercase tracking-[0.3em] text-muted-foreground font-bold mb-4 block">Our Services</span>
+            <h2 className="text-4xl md:text-5xl font-black text-foreground">Everything You Need</h2>
           </div>
           <div className="grid md:grid-cols-2 gap-6">
             {services.map((s, i) => (
@@ -87,11 +85,7 @@ export default function LandingPage() {
 
       <UseCaseMarquee />
 
-      
-
       <WhyChooseUs />
-
-      
 
       {/* CTA Section */}
       <section className="py-24 px-6">
@@ -101,13 +95,13 @@ export default function LandingPage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <h2 className="text-4xl md:text-6xl font-black text-white mb-6">
+            <h2 className="text-4xl md:text-6xl font-black text-foreground mb-6">
               Ready to Transform<br />Your Hiring?
             </h2>
-            <p className="text-white/40 mb-10 text-lg">Start screening candidates with AI today.</p>
+            <p className="text-muted-foreground mb-10 text-lg">Start screening candidates with AI today.</p>
             <Link
               to="/dashboard"
-              className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-10 py-4 rounded-xl text-lg transition-all"
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-bold px-10 py-4 border-2 border-border shadow-md hover:shadow-lg text-lg transition-all"
             >
               Start Free Trial
               <ArrowRight className="w-5 h-5" />

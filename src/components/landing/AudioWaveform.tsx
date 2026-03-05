@@ -5,7 +5,7 @@ export function AudioWaveform() {
       {Array.from({ length: bars }).map((_, i) => (
         <div
           key={i}
-          className="w-1.5 rounded-full bg-gradient-to-t from-emerald-500 to-emerald-300 opacity-80"
+          className="w-1.5 bg-foreground/80"
           style={{
             animation: `waveform 1.2s ease-in-out infinite`,
             animationDelay: `${i * 0.05}s`,
