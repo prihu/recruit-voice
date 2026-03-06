@@ -141,6 +141,38 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Source 1.5: Extract from transcript tool_calls (matches webhook fallback)
+    if (Object.keys(toolAnswers).length === 0 && Array.isArray(transcript)) {
+      for (const turn of transcript) {
+        for (const call of (turn.tool_calls || [])) {
+          const toolName = call.tool_name || '';
+          if (toolName.includes('save') && toolName.includes('answer')) {
+            try {
+              const bodyStr = call.tool_details?.body || call.params_as_json || '';
+              const params = typeof bodyStr === 'string' ? JSON.parse(bodyStr) : bodyStr;
+              const questionText = params.question_text || '';
+              const answerText = params.candidate_answer || '';
+              const answerQuality = params.answer_quality || 'partial';
+              if (questionText) {
+                const key = `q_${questionText.toLowerCase()
+                  .replace(/[^a-z0-9]+/g, '_')
+                  .replace(/^_|_$/g, '')
+                  .substring(0, 60)}`;
+                toolAnswers[key] = {
+                  question_text: questionText,
+                  candidate_answer: answerText,
+                  answer_quality: answerQuality,
+                  question_index: params.question_index,
+                  source: 'transcript_tool_calls',
+                };
+              }
+            } catch (e) { /* skip unparseable */ }
+          }
+        }
+      }
+      console.log(`[REFETCH] Extracted ${Object.keys(toolAnswers).length} answers from transcript tool_calls`);
+    }
+
     // Source 2: data_collection_results (in analysis)
     const dataCollectionResults = analysis.data_collection_results || {};
     const dataCollectionResultsList = analysis.data_collection_results_list || [];
