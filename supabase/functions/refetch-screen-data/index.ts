@@ -490,6 +490,11 @@ Deno.serve(async (req) => {
       updateData.recording_url = metadata.recording_url;
     }
 
+    // Set extracted_data (security flags, eval results)
+    if (Object.keys(extractedData).length > 0) {
+      updateData.extracted_data = extractedData;
+    }
+
     const { error: updateError } = await supabase
       .from('screens')
       .update(updateData)
