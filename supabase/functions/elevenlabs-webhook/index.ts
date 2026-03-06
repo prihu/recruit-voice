@@ -367,11 +367,53 @@ serve(async (req) => {
 
         console.log(`[WEBHOOK] answer_quality score: ${score}, outcome: ${outcome}`);
       } else {
-        // === PATH C: No eval criteria AND no save-answer data ===
-        updateData.outcome = callConnected ? 'incomplete' : 'incomplete';
-        updateData.score = 0;
-        updateData.reasons = ['Screening incomplete - no answers captured'];
-        console.log('[WEBHOOK] No evaluation data and no saved answers - screening incomplete');
+        // === PATH B.5: Try extracting from transcript tool_calls ===
+        const toolAnswers: Record<string, any> = {};
+        if (Array.isArray(transcript)) {
+          for (const turn of transcript) {
+            for (const call of (turn.tool_calls || [])) {
+              const toolName = call.tool_name || '';
+              if (toolName.includes('save') && toolName.includes('answer')) {
+                try {
+                  const bodyStr = call.tool_details?.body || call.params_as_json || '';
+                  const params = typeof bodyStr === 'string' ? JSON.parse(bodyStr) : bodyStr;
+                  const questionText = params.question_text || '';
+                  if (questionText) {
+                    const key = `q_${questionText.toLowerCase()
+                      .replace(/[^a-z0-9]+/g, '_')
+                      .replace(/^_|_$/g, '')
+                      .substring(0, 60)}`;
+                    toolAnswers[key] = {
+                      question_text: questionText,
+                      candidate_answer: params.candidate_answer || '',
+                      answer_quality: params.answer_quality || 'partial',
+                      question_index: params.question_index,
+                      source: 'webhook_transcript_tool_calls',
+                    };
+                  }
+                } catch (e) { /* skip unparseable */ }
+              }
+            }
+          }
+        }
+
+        if (Object.keys(toolAnswers).length > 0) {
+          // Score from recovered tool call data
+          updateData.answers = toolAnswers;
+          updateData.questions_answered = Object.keys(toolAnswers).length;
+          updateData.candidate_responded = true;
+          const { score, outcome, reasons } = scoreFromAnswerQuality(toolAnswers, securityFlags);
+          updateData.score = score;
+          updateData.outcome = outcome;
+          if (reasons.length > 0) updateData.reasons = reasons;
+          console.log(`[WEBHOOK] Recovered ${Object.keys(toolAnswers).length} answers from transcript tool_calls`);
+        } else {
+          // === PATH C: Truly no data ===
+          updateData.outcome = 'incomplete';
+          updateData.score = 0;
+          updateData.reasons = ['Screening incomplete - no answers captured'];
+          console.log('[WEBHOOK] No evaluation data and no saved answers - screening incomplete');
+        }
       }
 
       // Update screen record
