@@ -1,60 +1,97 @@
 
 
-## Fixes for 4 Issues on Screen Detail Page
+## Plan: Fix Scoring, Add Audio Download from ElevenLabs, Remove Redundant UI
 
-### Issue 1: Created date missing time
-Line 366 uses format `'PPP'` (e.g., "March 6th, 2026") -- missing time. Change to `'PPp'` to include time (e.g., "March 6th, 2026, 2:09 PM").
+### Issues to Fix
 
-**File**: `src/pages/ScreenDetail.tsx`, line 366
-- Change `safeFormat(screen.createdAt, 'PPP')` → `safeFormat(screen.createdAt, 'PPp')`
+1. **Scoring still broken in `refetch-screen-data`**: `scoreFromAnswerQuality` accepts `totalQuestions` param but ignores it (line 92 uses `entries.length`). This is why score is still 100/pass for 1 of 8 questions.
 
-### Issue 2: Call Ended time incorrect
-DB has `completed_at: 2026-03-06 13:55:27.956+00` (UTC). Displayed as "Mar 6, 2026, 7:25 PM" which is IST (UTC+5:30). The time is actually correct in the user's local timezone. However, the user may be saying it's wrong because the call ended earlier than 7:25 PM IST. This timestamp was set by `refetch-screen-data` when the user clicked "Re-fetch" (not the actual call end from ElevenLabs). The `completed_at` was likely overwritten during a refetch before the preservation fix was deployed.
+2. **Recording download**: Instead of relying on `recording_url` from webhook metadata (often null), fetch audio directly from `GET https://api.elevenlabs.io/v1/convai/conversations/{conversation_id}/audio`. The Download Recording button should call a new edge function that proxies this request.
 
-**No code fix needed** -- the preservation logic (`screen.completed_at || new Date()`) is already in place at line 467. The existing data just has the wrong value. We could re-fetch to correct it, but since the original call end time from ElevenLabs metadata may also not have been captured, the best we can do is note this.
+3. **`completed_at` from ElevenLabs**: The ElevenLabs conversation API response contains timestamps in its metadata (e.g., `metadata.start_time_unix_secs` or the last transcript entry's `time_in_call_secs`). The refetch function should extract the actual call end time from ElevenLabs rather than falling back to `new Date()`.
 
-### Issue 3: Download Recording greyed out
-`recording_url` is `null` in DB. The button is correctly disabled when no URL exists (line 399). ElevenLabs didn't return a `recording_url` in the webhook or conversation API response. This is expected for many ElevenLabs conversations -- **recording must be explicitly enabled in the ElevenLabs agent configuration**. 
+4. **Remove Export JSON/CSV buttons** from individual screen detail page (lines 286-294).
 
-**Fix**: Instead of a greyed-out button with no explanation, show a tooltip or text explaining why it's unavailable.
+5. **Disable Schedule Follow-up button** (line 395) -- mark as "Coming Soon".
 
-**File**: `src/pages/ScreenDetail.tsx`, lines 396-408
-- Add tooltip: "Recording not available - enable recording in ElevenLabs agent settings"
+6. **Remove QuickActionsMenu** from AppLayout header -- it's redundant with existing nav items.
 
-### Issue 4: Score 100 / Outcome Pass -- the `scoreFromAnswerQuality` fix didn't land in refetch-screen-data
+### Changes
 
-**Root cause**: `refetch-screen-data` line 75-116 -- the function signature accepts `totalQuestions` but the body at line 92 still uses `entries.length` as denominator. The completeness check was never added. The caller at line 450 passes `totalQuestions` but it's ignored.
+#### 1. Fix `scoreFromAnswerQuality` in `refetch-screen-data/index.ts` (lines 75-116)
 
-**Fix in `supabase/functions/refetch-screen-data/index.ts`**, lines 80-115:
+Update the function body to actually use the `totalQuestions` parameter:
+
 ```typescript
-const denominator = totalQuestions ? Math.max(totalQuestions, entries.length) : entries.length;
-const score = Math.round((sum / denominator) * 100);
+function scoreFromAnswerQuality(answers, securityFlags?, totalQuestions?) {
+  const entries = Object.values(answers);
+  if (entries.length === 0) return { score: 0, outcome: 'incomplete', reasons: ['No answers captured'] };
 
-// Completeness: if not all questions answered → incomplete
-if (totalQuestions && entries.length < totalQuestions) {
-  reasons.push(`Only ${entries.length} of ${totalQuestions} questions answered`);
-  return { score, outcome: 'incomplete', reasons };
+  let sum = 0;
+  for (const entry of entries) {
+    const quality = (entry?.answer_quality || '').toLowerCase();
+    if (quality === 'good') sum += 1.0;
+    else if (quality === 'partial') sum += 0.5;
+  }
+
+  const denominator = totalQuestions ? Math.max(totalQuestions, entries.length) : entries.length;
+  const score = Math.round((sum / denominator) * 100);
+
+  // Completeness: not all questions answered → incomplete
+  if (totalQuestions && entries.length < totalQuestions) {
+    return { score, outcome: 'incomplete', reasons: [`Only ${entries.length} of ${totalQuestions} questions answered`] };
+  }
+
+  // Then existing security/threshold logic...
 }
 ```
 
-Also set `total_questions` in updateData (line 464-476 area):
+Also set `updateData.total_questions` and `updateData.questions_answered` in the update block.
+
+#### 2. Extract `completed_at` from ElevenLabs metadata in `refetch-screen-data`
+
+After fetching conversation data, extract the actual end time:
 ```typescript
-updateData.total_questions = totalQuestions || 0;
+// Use ElevenLabs metadata for completed_at
+let callEndTime = screen.completed_at;
+if (!callEndTime) {
+  // Try metadata timestamps
+  if (metadata.end_time_unix_secs) {
+    callEndTime = new Date(metadata.end_time_unix_secs * 1000).toISOString();
+  } else if (metadata.start_time_unix_secs && metadata.duration_seconds) {
+    callEndTime = new Date((metadata.start_time_unix_secs + metadata.duration_seconds) * 1000).toISOString();
+  } else {
+    callEndTime = new Date().toISOString();
+  }
+}
 ```
 
-### Regarding "Schedule Follow-up" button (Question 3)
-This is currently a **placeholder button** with no functionality. It's meant for scheduling a retry call to the candidate (e.g., if the screening was incomplete). It does nothing right now. We should either remove it or mark it as "Coming Soon".
+#### 3. New edge function: `supabase/functions/get-conversation-audio/index.ts`
 
-**Fix**: Add `disabled` and a "(Coming Soon)" label to avoid confusion.
+Proxies the ElevenLabs audio API:
+- Accepts `{ conversation_id }` 
+- Calls `GET https://api.elevenlabs.io/v1/convai/conversations/{conversation_id}/audio`
+- Returns the audio binary to the client
 
----
+#### 4. Update `src/pages/ScreenDetail.tsx`
 
-### Summary of changes
+- **Remove** Export JSON and Export CSV buttons (lines 286-294)
+- **Change** Download Recording button to call the new `get-conversation-audio` edge function using the `session_id` instead of relying on `recording_url`
+- **Disable** Schedule Follow-up button, add "(Coming Soon)" text
+- **Fix** Created date format: `'PPP'` → `'PPp'` (line 366)
+
+#### 5. Update `src/components/layout/AppLayout.tsx`
+
+- Remove `QuickActionsMenu` import and usage (lines 14, 121)
+- Remove the `QuickActionsMenu.tsx` component file (can keep file but remove from layout)
+
+### Files Changed
 
 | File | Change |
 |------|--------|
-| `src/pages/ScreenDetail.tsx` | Created date format `PPP` → `PPp`; tooltip on disabled recording button; "Coming Soon" on Schedule Follow-up |
-| `supabase/functions/refetch-screen-data/index.ts` | Fix `scoreFromAnswerQuality` to use `totalQuestions` denominator + completeness check; set `total_questions` in updateData |
-
-After deploying the refetch fix, the user should click "Re-fetch from ElevenLabs" on this screen to recalculate the score correctly.
+| `supabase/functions/refetch-screen-data/index.ts` | Fix `scoreFromAnswerQuality` denominator, extract `completed_at` from ElevenLabs metadata |
+| `supabase/functions/get-conversation-audio/index.ts` | New -- proxy ElevenLabs audio API |
+| `src/pages/ScreenDetail.tsx` | Remove export buttons, fix recording download, disable follow-up, fix date format |
+| `src/components/layout/AppLayout.tsx` | Remove QuickActionsMenu |
+| `supabase/config.toml` | Add `get-conversation-audio` function config |
 
