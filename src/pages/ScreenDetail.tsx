@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import {
   ArrowLeft, Phone, Mail, MapPin, Calendar, Clock,
   CheckCircle, XCircle, AlertCircle, MessageSquare, Mic,
-  Download, ThumbsUp, ThumbsDown, Send, FileJson, FileSpreadsheet,
+  Download, ThumbsUp, ThumbsDown, Send,
   Loader2, PhoneCall, Activity, RefreshCw
 } from 'lucide-react';
 import { VoiceScreening } from '@/components/VoiceScreening';
@@ -282,16 +282,7 @@ export default function ScreenDetail() {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline">
-              <FileJson className="w-4 h-4 mr-2" />
-              Export JSON
-            </Button>
-            <Button variant="outline">
-              <FileSpreadsheet className="w-4 h-4 mr-2" />
-              Export CSV
-            </Button>
-          </div>
+          <div className="flex gap-2" />
         </div>
 
         {/* Overview Cards */}
@@ -363,7 +354,7 @@ export default function ScreenDetail() {
               
               <Separator />
               <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span>Created: {safeFormat(screen.createdAt, 'PPP')}</span></div>
+                <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span>Created: {safeFormat(screen.createdAt, 'PPp')}</span></div>
                 {screen.completedAt && (
                   <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-muted-foreground" /><span>Call Ended: {safeFormat(screen.completedAt, 'PPp')}</span></div>
                 )}
@@ -392,14 +383,30 @@ export default function ScreenDetail() {
             <CardContent className="space-y-3">
               <Button className="w-full bg-success hover:bg-success/90"><ThumbsUp className="w-4 h-4 mr-2" />Advance Candidate</Button>
               <Button variant="destructive" className="w-full"><ThumbsDown className="w-4 h-4 mr-2" />Reject Candidate</Button>
-              <Button variant="outline" className="w-full"><Send className="w-4 h-4 mr-2" />Schedule Follow-up</Button>
+              <Button variant="outline" className="w-full" disabled>
+                <Send className="w-4 h-4 mr-2" />Schedule Follow-up (Coming Soon)
+              </Button>
               <Button
                 variant="outline"
                 className="w-full"
-                disabled={!screen.recording_url}
-                onClick={() => {
-                  if (screen.recording_url) {
-                    window.open(screen.recording_url, '_blank');
+                disabled={!screen.session_id}
+                onClick={async () => {
+                  if (!screen.session_id) return;
+                  try {
+                    toast({ title: "Downloading...", description: "Fetching recording from ElevenLabs" });
+                    const { data, error } = await supabase.functions.invoke('get-conversation-audio', {
+                      body: { conversation_id: screen.session_id }
+                    });
+                    if (error) throw error;
+                    const blob = new Blob([data], { type: 'audio/mpeg' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `recording-${screen.session_id}.mp3`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch (err: any) {
+                    toast({ title: "Download Failed", description: err.message || "Could not fetch recording", variant: "destructive" });
                   }
                 }}
               >
