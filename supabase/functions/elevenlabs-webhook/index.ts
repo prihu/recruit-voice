@@ -267,8 +267,18 @@ serve(async (req) => {
 
       // === Scoring: try eval criteria first, then fallback to answer_quality ===
       const evalRaw = webhookData.analysis?.evaluation_criteria_results;
+      const evalListRaw = (webhookData.analysis as any)?.evaluation_criteria_results_list;
       let evalArray: any[] = [];
-      if (Array.isArray(evalRaw)) {
+      
+      // Try the list format first (newer API)
+      if (Array.isArray(evalListRaw) && evalListRaw.length > 0) {
+        evalArray = evalListRaw.map((item: any) => ({
+          criteria: item.criteria || item.name || item.evaluation_criteria_id || '',
+          result: item.result || (item.passed ? 'pass' : 'fail'),
+          passed: item.result === 'pass' || item.passed === true,
+          reason: item.rationale || item.reason || item.details || null,
+        }));
+      } else if (Array.isArray(evalRaw)) {
         evalArray = evalRaw;
       } else if (evalRaw && typeof evalRaw === 'object') {
         evalArray = Object.entries(evalRaw).map(([criteria, v]: [string, any]) => ({

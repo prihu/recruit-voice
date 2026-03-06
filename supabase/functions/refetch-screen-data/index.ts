@@ -5,7 +5,74 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-function scoreFromAnswerQuality(answers: Record<string, any>): {
+// Prompt injection detection patterns
+const INJECTION_PATTERNS = [
+  /ignore\s+(previous|prior|above|all)\s+(instructions?|prompts?|commands?)/i,
+  /ignore\s+what\s+(you|they)\s+said/i,
+  /forget\s+(everything|all|your)\s+(you|instructions?)/i,
+  /you\s+are\s+now\s+a/i,
+  /pretend\s+(you\s+are|to\s+be)/i,
+  /act\s+as\s+(if|a|an)/i,
+  /disregard\s+(all|your|previous)/i,
+  /override\s+(your|the)\s+(instructions?|programming)/i,
+  /new\s+instructions?:/i,
+  /system\s*prompt:/i,
+  /jailbreak/i,
+  /do\s+not\s+follow\s+(your|the)\s+rules/i,
+  /bypass\s+(your|the|security)/i,
+];
+
+const MANIPULATION_PATTERNS = [
+  /the\s+salary\s+(is|should\s+be|was)\s+actually/i,
+  /change\s+(the|my)\s+(role|position|salary)/i,
+  /mark\s+(me|this)\s+as\s+(passed?|hired|approved)/i,
+  /give\s+(me|this)\s+a\s+(passing|perfect)\s+score/i,
+  /automatically\s+(pass|approve|hire)/i,
+  /set\s+(my|the)\s+score\s+to/i,
+];
+
+interface SecurityFlags {
+  injection_detected: boolean;
+  manipulation_detected: boolean;
+  patterns_matched: string[];
+  risk_level: 'low' | 'medium' | 'high';
+}
+
+function detectSecurityIssues(transcript: any[]): SecurityFlags {
+  const flags: SecurityFlags = {
+    injection_detected: false,
+    manipulation_detected: false,
+    patterns_matched: [],
+    risk_level: 'low'
+  };
+
+  if (!Array.isArray(transcript) || transcript.length === 0) return flags;
+
+  const candidateMessages = transcript
+    .filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate')
+    .map((msg: any) => msg.text || msg.message || '')
+    .join(' ');
+
+  for (const pattern of INJECTION_PATTERNS) {
+    if (pattern.test(candidateMessages)) {
+      flags.injection_detected = true;
+      flags.patterns_matched.push(pattern.source);
+    }
+  }
+  for (const pattern of MANIPULATION_PATTERNS) {
+    if (pattern.test(candidateMessages)) {
+      flags.manipulation_detected = true;
+      flags.patterns_matched.push(pattern.source);
+    }
+  }
+
+  if (flags.injection_detected && flags.manipulation_detected) flags.risk_level = 'high';
+  else if (flags.injection_detected || flags.manipulation_detected) flags.risk_level = 'medium';
+
+  return flags;
+}
+
+function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags): {
   score: number;
   outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
   reasons: string[];
@@ -24,9 +91,13 @@ function scoreFromAnswerQuality(answers: Record<string, any>): {
 
   const score = Math.round((sum / entries.length) * 100);
   const reasons: string[] = [];
+  const hasSecurityFlags = securityFlags && (securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium');
 
   let outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
-  if (score >= 80) {
+  if (hasSecurityFlags) {
+    outcome = 'needs_review';
+    reasons.push('Security flags detected - potential prompt manipulation, requires human review');
+  } else if (score >= 80) {
     outcome = 'pass';
   } else if (score >= 60) {
     outcome = 'needs_review';
@@ -303,6 +374,9 @@ Deno.serve(async (req) => {
     }
     const callConnected = conversationTurns >= 1;
 
+    // === Security detection ===
+    const securityFlags = detectSecurityIssues(Array.isArray(transcript) ? transcript : []);
+
     // === Scoring ===
     const evalRaw = analysis.evaluation_criteria_results;
     const evalListRaw = analysis.evaluation_criteria_results_list;
@@ -333,21 +407,46 @@ Deno.serve(async (req) => {
     let score: number;
     let outcome: string;
     let reasons: string[] = [];
+    let extractedData: any = {};
 
     if (evalArray.length > 0) {
       // PATH A: Eval criteria
-      const passedCount = evalArray.filter(r => r.passed === true || r.result === 'pass').length;
-      score = evalArray.length > 0 ? Math.round((passedCount / evalArray.length) * 100) : 0;
+      extractedData.evaluation_results = evalArray;
+      if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+        extractedData.security_flags = securityFlags;
+      }
 
-      if (score >= 80) outcome = 'pass';
-      else if (score >= 60) { outcome = 'needs_review'; reasons.push('Score in ambiguous range'); }
-      else { outcome = 'fail'; reasons = evalArray.filter(r => !r.passed).map(r => r.reason || r.criteria || 'Failed'); }
+      const passedCount = evalArray.filter(r => r.passed === true || r.result === 'pass').length;
+      score = Math.round((passedCount / evalArray.length) * 100);
+
+      const hasSecurityFlags = securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium';
+      const lowConfidenceItems = evalArray.filter((r: any) => r.confidence !== undefined && r.confidence < 0.7);
+      const hasLowConfidence = lowConfidenceItems.length > evalArray.length * 0.3;
+
+      if (hasSecurityFlags) {
+        outcome = 'needs_review';
+        reasons.push('Security flags detected - potential prompt manipulation, requires human review');
+      } else if (hasLowConfidence) {
+        outcome = 'needs_review';
+        reasons.push('Low confidence on multiple evaluation criteria - requires human review');
+      } else if (score >= 80) {
+        outcome = 'pass';
+      } else if (score >= 60) {
+        outcome = 'needs_review';
+        reasons.push('Score in ambiguous range (60-79) - requires human review');
+      } else {
+        outcome = 'fail';
+        reasons = evalArray.filter(r => !r.passed).map(r => r.reason || r.criteria || 'Failed');
+      }
     } else if (Object.keys(answers).length > 0) {
       // PATH B: answer_quality scoring
-      const result = scoreFromAnswerQuality(answers);
+      const result = scoreFromAnswerQuality(answers, securityFlags);
       score = result.score;
       outcome = result.outcome;
       reasons = result.reasons;
+      if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+        extractedData.security_flags = securityFlags;
+      }
     } else {
       // PATH C: No data
       score = 0;
