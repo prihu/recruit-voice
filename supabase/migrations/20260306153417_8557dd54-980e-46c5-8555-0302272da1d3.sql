@@ -1,0 +1,1 @@
+DELETE FROM screens WHERE id = '1e1d9da0-bfbd-440f-b776-bb3e4e38d616';
