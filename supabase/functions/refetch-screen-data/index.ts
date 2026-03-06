@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
     // Fetch screen record
     const { data: screen, error: screenError } = await supabase
       .from('screens')
-      .select('id, session_id, answers, role_id, bulk_operation_id')
+      .select('id, session_id, answers, role_id, bulk_operation_id, completed_at')
       .eq('id', screen_id)
       .single();
 
@@ -440,7 +440,14 @@ Deno.serve(async (req) => {
       }
     } else if (Object.keys(answers).length > 0) {
       // PATH B: answer_quality scoring
-      const result = scoreFromAnswerQuality(answers, securityFlags);
+      // Fetch totalQuestions from the role
+      let totalQuestions: number | undefined;
+      const { data: roleData } = await supabase
+        .from('roles').select('questions').eq('id', screen.role_id).single();
+      if (roleData?.questions && Array.isArray(roleData.questions)) {
+        totalQuestions = roleData.questions.length;
+      }
+      const result = scoreFromAnswerQuality(answers, securityFlags, totalQuestions);
       score = result.score;
       outcome = result.outcome;
       reasons = result.reasons;
@@ -457,7 +464,7 @@ Deno.serve(async (req) => {
     // === Build update ===
     const updateData: any = {
       status: 'completed',
-      completed_at: new Date().toISOString(),
+      completed_at: screen.completed_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
       score,
       outcome,

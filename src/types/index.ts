@@ -100,6 +100,7 @@ export interface Screen {
   score?: number;
   outcome?: 'pass' | 'fail' | 'incomplete' | 'needs_review' | null;
   reasons?: string[];
+  completedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
   scheduledAt?: Date;

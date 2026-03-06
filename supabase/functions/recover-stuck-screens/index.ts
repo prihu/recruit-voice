@@ -83,7 +83,7 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
  * Score answers using answer_quality from the save-answer tool.
  * good=1.0, partial=0.5, poor/skipped=0.0
  */
-function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags): {
+function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags, totalQuestions?: number): {
   score: number;
   outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
   reasons: string[];
@@ -100,8 +100,16 @@ function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: Se
     else if (quality === 'partial') sum += 0.5;
   }
 
-  const score = Math.round((sum / entries.length) * 100);
+  const denominator = totalQuestions ? Math.max(totalQuestions, entries.length) : entries.length;
+  const score = Math.round((sum / denominator) * 100);
   const reasons: string[] = [];
+
+  // Completeness check: if not all questions answered → incomplete
+  if (totalQuestions && entries.length < totalQuestions) {
+    reasons.push(`Only ${entries.length} of ${totalQuestions} questions answered`);
+    return { score, outcome: 'incomplete', reasons };
+  }
+
   const hasSecurityFlags = securityFlags && (securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium');
 
   let outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
@@ -148,7 +156,7 @@ Deno.serve(async (req) => {
     
     const { data: stuckScreens, error: fetchError } = await supabase
       .from('screens')
-      .select('id, session_id, bulk_operation_id, organization_id, answers')
+      .select('id, session_id, bulk_operation_id, organization_id, answers, role_id')
       .eq('status', 'in_progress')
       .not('session_id', 'is', null)
       .lt('started_at', fiveMinutesAgo);
@@ -258,6 +266,16 @@ Deno.serve(async (req) => {
         let reasons: string[] = [];
         let extractedData: any = {};
 
+        // Fetch totalQuestions from the role
+        let totalQuestions: number | undefined;
+        if (screen.role_id) {
+          const { data: roleData } = await supabase
+            .from('roles').select('questions').eq('id', screen.role_id).single();
+          if (roleData?.questions && Array.isArray(roleData.questions)) {
+            totalQuestions = roleData.questions.length;
+          }
+        }
+
         if (evaluationResults.length > 0) {
           // PATH A: Score from eval criteria
           extractedData.evaluation_results = evaluationResults;
@@ -292,7 +310,7 @@ Deno.serve(async (req) => {
         } else if (Object.keys(existingAnswers).length > 0) {
           // PATH B: Fallback to answer_quality scoring
           console.log(`[RECOVER] No eval criteria, falling back to answer_quality for screen ${screen.id}`);
-          const result = scoreFromAnswerQuality(existingAnswers, securityFlags);
+          const result = scoreFromAnswerQuality(existingAnswers, securityFlags, totalQuestions);
           score = result.score;
           outcome = result.outcome;
           reasons = result.reasons;
@@ -334,7 +352,7 @@ Deno.serve(async (req) => {
           if (Object.keys(toolAnswers).length > 0) {
             // Score from recovered tool call data
             console.log(`[RECOVER] Recovered ${Object.keys(toolAnswers).length} answers from transcript tool_calls for screen ${screen.id}`);
-            const result = scoreFromAnswerQuality(toolAnswers, securityFlags);
+            const result = scoreFromAnswerQuality(toolAnswers, securityFlags, totalQuestions);
             score = result.score;
             outcome = result.outcome;
             reasons = result.reasons;

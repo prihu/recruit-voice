@@ -95,6 +95,7 @@ export default function ScreenDetail() {
         score: screenData.score,
         outcome: screenData.outcome as Screen['outcome'],
         reasons: screenData.reasons,
+        completedAt: screenData.completed_at ? new Date(screenData.completed_at) : undefined,
         createdAt: new Date(screenData.created_at),
         updatedAt: new Date(screenData.updated_at),
         scheduledAt: screenData.scheduled_at ? new Date(screenData.scheduled_at) : undefined,
@@ -362,8 +363,11 @@ export default function ScreenDetail() {
               
               <Separator />
               <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span>{safeFormat(screen.createdAt, 'PPP')}</span></div>
-                <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-muted-foreground" /><span>{safeFormatDistance(screen.updatedAt, { addSuffix: true })}</span></div>
+                <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span>Created: {safeFormat(screen.createdAt, 'PPP')}</span></div>
+                {screen.completedAt && (
+                  <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-muted-foreground" /><span>Call Ended: {safeFormat(screen.completedAt, 'PPp')}</span></div>
+                )}
+                <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-muted-foreground" /><span>Last Updated: {safeFormatDistance(screen.updatedAt, { addSuffix: true })}</span></div>
               </div>
               {screen.reasons && screen.reasons.length > 0 && (
                 <>
