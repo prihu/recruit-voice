@@ -83,13 +83,11 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
     return flags;
   }
 
-  // Only check candidate/user messages
   const candidateMessages = transcript
     .filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate')
-    .map((msg: any) => msg.text || '')
+    .map((msg: any) => msg.text || msg.message || '')
     .join(' ');
 
-  // Check for injection patterns
   for (const pattern of INJECTION_PATTERNS) {
     if (pattern.test(candidateMessages)) {
       flags.injection_detected = true;
@@ -97,7 +95,6 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
     }
   }
 
-  // Check for manipulation patterns
   for (const pattern of MANIPULATION_PATTERNS) {
     if (pattern.test(candidateMessages)) {
       flags.manipulation_detected = true;
@@ -105,7 +102,6 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
     }
   }
 
-  // Determine risk level
   if (flags.injection_detected && flags.manipulation_detected) {
     flags.risk_level = 'high';
   } else if (flags.injection_detected || flags.manipulation_detected) {
@@ -115,8 +111,59 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
   return flags;
 }
 
+/**
+ * Score answers using answer_quality from the save-answer tool.
+ * good=1.0, partial=0.5, poor/skipped=0.0
+ * Returns { score, outcome, reasons }
+ */
+function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags): {
+  score: number;
+  outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
+  reasons: string[];
+} {
+  const entries = Object.values(answers);
+  if (entries.length === 0) {
+    return { score: 0, outcome: 'incomplete', reasons: ['No answers captured'] };
+  }
+
+  let sum = 0;
+  for (const entry of entries) {
+    const quality = (entry?.answer_quality || '').toLowerCase();
+    if (quality === 'good') sum += 1.0;
+    else if (quality === 'partial') sum += 0.5;
+    // poor, skipped, or unknown = 0
+  }
+
+  const score = Math.round((sum / entries.length) * 100);
+  const reasons: string[] = [];
+
+  // Check security flags first
+  const hasSecurityFlags = securityFlags && (securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium');
+  
+  let outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
+  if (hasSecurityFlags) {
+    outcome = 'needs_review';
+    reasons.push('Security flags detected - potential prompt manipulation, requires human review');
+  } else if (score >= 80) {
+    outcome = 'pass';
+  } else if (score >= 60) {
+    outcome = 'needs_review';
+    reasons.push('Score in ambiguous range (60-79) - requires human review');
+  } else {
+    outcome = 'fail';
+    // Add failure reasons from individual answers
+    for (const entry of entries) {
+      const quality = (entry?.answer_quality || '').toLowerCase();
+      if (quality === 'poor' || quality === 'skipped') {
+        reasons.push(`${entry.question_text || 'Question'}: ${quality}`);
+      }
+    }
+  }
+
+  return { score, outcome, reasons };
+}
+
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -130,14 +177,11 @@ serve(async (req) => {
       call_id: webhookData.call_id
     });
 
-    // Extract screen_id from custom_data
     const customData = webhookData.conversation_initiation_metadata?.custom_data;
-    const screenId = customData?.screen_id;
+    let screenId = customData?.screen_id;
 
     if (!screenId) {
       console.warn('No screen_id in webhook data, attempting to find by conversation_id');
-      
-      // Try to find screen by conversation_id
       const { data: screen } = await supabase
         .from('screens')
         .select('id')
@@ -150,11 +194,22 @@ serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
+      screenId = screen.id;
     }
 
     // Handle conversation completion
     if (webhookData.type === 'conversation_end' || webhookData.type === 'call_ended') {
       console.log('Processing conversation end for screen:', screenId);
+
+      // Fetch existing screen to preserve save-answer data
+      const { data: existingScreen } = await supabase
+        .from('screens')
+        .select('answers, questions_answered, bulk_operation_id')
+        .eq('id', screenId)
+        .single();
+
+      const existingAnswers = (existingScreen?.answers as Record<string, any>) || {};
+      console.log('[WEBHOOK] Existing answers from save-answer tool:', Object.keys(existingAnswers).length);
 
       const updateData: any = {
         status: 'completed',
@@ -173,203 +228,150 @@ serve(async (req) => {
       }
 
       // Extract transcript
-      if (webhookData.transcript) {
-        updateData.transcript = webhookData.transcript;
+      const transcript = webhookData.transcript || [];
+      if (Array.isArray(transcript) && transcript.length > 0) {
+        updateData.transcript = transcript;
       }
 
-      // Extract AI analysis and summary
-      if (webhookData.analysis) {
-        const analysis = webhookData.analysis;
+      // Extract AI summary
+      if (webhookData.analysis?.transcript_summary) {
+        updateData.ai_summary = webhookData.analysis.transcript_summary;
+      }
+
+      // === ALWAYS compute call quality metrics (moved outside eval criteria block) ===
+      const conversationTurns = Array.isArray(transcript) ? transcript.length : 0;
+      const candidateMessageCount = Array.isArray(transcript)
+        ? transcript.filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate').length
+        : 0;
+      const candidateResponded = candidateMessageCount > 0;
+      let firstResponseTime: number | null = null;
+      if (Array.isArray(transcript) && transcript.length > 1) {
+        const firstCandidateMsg = transcript.find((msg: any) =>
+          msg.role === 'user' || msg.speaker === 'candidate'
+        );
+        if (firstCandidateMsg?.time_in_call_secs !== undefined) {
+          firstResponseTime = Math.round(firstCandidateMsg.time_in_call_secs);
+        }
+      }
+      const callConnected = conversationTurns >= 1;
+
+      updateData.conversation_turns = conversationTurns;
+      updateData.candidate_responded = candidateResponded;
+      updateData.call_connected = callConnected;
+      updateData.first_response_time_seconds = firstResponseTime;
+
+      console.log('[WEBHOOK] Call quality metrics:', { conversationTurns, candidateResponded, callConnected, firstResponseTime });
+
+      // === Run security detection on transcript ===
+      const securityFlags = detectSecurityIssues(Array.isArray(transcript) ? transcript : []);
+
+      // === Scoring: try eval criteria first, then fallback to answer_quality ===
+      const evalRaw = webhookData.analysis?.evaluation_criteria_results;
+      let evalArray: any[] = [];
+      if (Array.isArray(evalRaw)) {
+        evalArray = evalRaw;
+      } else if (evalRaw && typeof evalRaw === 'object') {
+        evalArray = Object.entries(evalRaw).map(([criteria, v]: [string, any]) => ({
+          criteria,
+          ...((v as any) || {}),
+          result: (v as any)?.result ?? (((v as any)?.passed) ? 'pass' : 'fail'),
+          passed: (v as any)?.passed ?? ((v as any)?.result === 'pass'),
+          reason: (v as any)?.reason ?? (v as any)?.details ?? null,
+        }));
+      }
+      console.log('[WEBHOOK] evaluation_criteria_results items:', evalArray.length);
+
+      if (evalArray.length > 0) {
+        // === PATH A: Score from ElevenLabs evaluation criteria (existing logic) ===
+        const evaluationResults = evalArray;
+        const extractedData: any = { evaluation_results: evaluationResults };
+
+        if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+          extractedData.security_flags = securityFlags;
+          console.log('[WEBHOOK] Security flags detected:', securityFlags);
+        }
+        updateData.extracted_data = extractedData;
+
+        // Map eval criteria to question IDs for display
+        const roleId = customData?.role_id;
+        if (roleId) {
+          const { data: roleData } = await supabase
+            .from('roles').select('questions').eq('id', roleId).single();
+          if (roleData?.questions) {
+            const questions = Array.isArray(roleData.questions) ? roleData.questions : [];
+            const answersMap: Record<string, any> = {};
+            questions.forEach((q: any) => {
+              const matchingEval = evalArray.find(e =>
+                e.criteria?.toLowerCase().includes(q.text?.toLowerCase().substring(0, 20)) ||
+                q.text?.toLowerCase().includes(e.criteria?.toLowerCase().substring(0, 20))
+              );
+              if (matchingEval) {
+                answersMap[q.id] = {
+                  answer: matchingEval.reason || matchingEval.result,
+                  passed: matchingEval.passed,
+                  reason: matchingEval.reason
+                };
+              }
+            });
+            updateData.answers = answersMap;
+          }
+        }
+
+        // Score from pass/fail
+        const passedCount = evalArray.filter(r => r.passed === true || r.result === 'pass').length;
+        const total = evalArray.length;
+        updateData.score = total > 0 ? (passedCount / total) * 100 : 0;
+
+        // Determine outcome
+        const score = updateData.score as number;
+        const hasSecurityFlags = securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium';
+        const lowConfidenceItems = evalArray.filter(r => r.confidence !== undefined && r.confidence < 0.7);
+        const hasLowConfidence = lowConfidenceItems.length > evalArray.length * 0.3;
+
+        if (hasSecurityFlags) {
+          updateData.outcome = 'needs_review';
+          updateData.reasons = ['Security flags detected - potential prompt manipulation, requires human review'];
+        } else if (hasLowConfidence) {
+          updateData.outcome = 'needs_review';
+          updateData.reasons = ['Low confidence on multiple evaluation criteria - requires human review'];
+        } else if (score >= 80) {
+          updateData.outcome = 'pass';
+        } else if (score >= 60) {
+          updateData.outcome = 'needs_review';
+          updateData.reasons = ['Score in ambiguous range (60-79) - requires human review'];
+        } else {
+          updateData.outcome = 'fail';
+          const reasons = evalArray
+            .filter(r => r.passed === false || r.result === 'fail')
+            .map(r => r.reason || r.criteria || 'Unknown criteria failed');
+          if (reasons.length > 0) updateData.reasons = reasons;
+        }
+      } else if (Object.keys(existingAnswers).length > 0) {
+        // === PATH B: Fallback — score from save-answer tool's answer_quality ===
+        console.log('[WEBHOOK] No eval criteria, falling back to answer_quality scoring');
         
-        // Store transcript summary as AI summary
-        if (analysis.transcript_summary) {
-          updateData.ai_summary = analysis.transcript_summary;
+        const { score, outcome, reasons } = scoreFromAnswerQuality(existingAnswers, securityFlags);
+        updateData.score = score;
+        updateData.outcome = outcome;
+        if (reasons.length > 0) updateData.reasons = reasons;
+        
+        // Don't overwrite answers — keep save-answer data
+        // But store security flags if any
+        const extractedData: any = {};
+        if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+          extractedData.security_flags = securityFlags;
+        }
+        if (Object.keys(extractedData).length > 0) {
+          updateData.extracted_data = extractedData;
         }
 
-        // Extract evaluation criteria results (normalize array/object)
-        if (analysis.evaluation_criteria_results !== undefined) {
-          const evalRaw = analysis.evaluation_criteria_results as any;
-          let evalArray: any[] = [];
-          if (Array.isArray(evalRaw)) {
-            evalArray = evalRaw;
-          } else if (evalRaw && typeof evalRaw === 'object') {
-            evalArray = Object.entries(evalRaw).map(([criteria, v]: [string, any]) => ({
-              criteria,
-              ...((v as any) || {}),
-              result: (v as any)?.result ?? (((v as any)?.passed) ? 'pass' : 'fail'),
-              passed: (v as any)?.passed ?? ((v as any)?.result === 'pass'),
-              reason: (v as any)?.reason ?? (v as any)?.details ?? null,
-            }));
-          }
-          console.log('[WEBHOOK] evaluation_criteria_results shape:', Array.isArray(evalRaw) ? 'array' : typeof evalRaw, 'items:', evalArray.length);
-
-          // Transform to question-answer format + extract structured data
-          if (evalArray.length > 0) {
-            // Store raw evaluation array for backward compatibility
-            const evaluationResults = evalArray;
-            
-            // Fetch role to map criteria to questions
-            const roleId = customData?.role_id;
-            if (roleId) {
-              const { data: roleData } = await supabase
-                .from('roles')
-                .select('questions')
-                .eq('id', roleId)
-                .single();
-              
-              if (roleData?.questions) {
-                const questions = Array.isArray(roleData.questions) ? roleData.questions : [];
-                const answersMap: Record<string, any> = {};
-                
-                // Map evaluation criteria to question IDs
-                questions.forEach((q: any) => {
-                  const matchingEval = evalArray.find(e => 
-                    e.criteria?.toLowerCase().includes(q.text?.toLowerCase().substring(0, 20)) ||
-                    q.text?.toLowerCase().includes(e.criteria?.toLowerCase().substring(0, 20))
-                  );
-                  
-                  if (matchingEval) {
-                    answersMap[q.id] = {
-                      answer: matchingEval.reason || matchingEval.result,
-                      passed: matchingEval.passed,
-                      reason: matchingEval.reason
-                    };
-                  }
-                });
-                
-                updateData.answers = answersMap;
-              }
-            }
-            
-            // Extract structured data from transcript
-            const transcript = webhookData.transcript || [];
-            const extractedData: any = {
-              evaluation_results: evaluationResults
-            };
-            
-            // Extract basic candidate info from transcript if available
-            if (Array.isArray(transcript) && transcript.length > 0) {
-              const candidateMessages = transcript
-                .filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate')
-                .map((msg: any) => msg.text)
-                .join(' ');
-              
-              // Store for potential AI extraction later
-              extractedData.candidate_responses = candidateMessages;
-            }
-            
-            // Run security detection on transcript
-            const securityFlags = detectSecurityIssues(transcript);
-            if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
-              extractedData.security_flags = securityFlags;
-              console.log('[WEBHOOK] Security flags detected:', securityFlags);
-            }
-            
-            updateData.extracted_data = extractedData;
-          }
-
-          // Calculate score (0-100 based on criteria pass rate)
-          const passedCount = evalArray.filter(r => r.passed === true || r.result === 'pass').length;
-          const total = evalArray.length;
-          if (total > 0) {
-            updateData.score = (passedCount / total) * 100;
-          }
-
-          // Calculate call quality metrics FIRST (before using them)
-          const transcript = webhookData.transcript || [];
-          const conversationTurns = Array.isArray(transcript) ? transcript.length : 0;
-
-          // Count candidate messages (role: 'user' or speaker: 'candidate')
-          const candidateMessages = Array.isArray(transcript) 
-            ? transcript.filter((msg: any) => 
-                msg.role === 'user' || msg.speaker === 'candidate'
-              ).length 
-            : 0;
-
-          const candidateResponded = candidateMessages > 0;
-
-          // Calculate time to first candidate response (in seconds)
-          let firstResponseTime: number | null = null;
-          if (Array.isArray(transcript) && transcript.length > 1) {
-            const firstCandidateMsg = transcript.find((msg: any) => 
-              msg.role === 'user' || msg.speaker === 'candidate'
-            );
-            if (firstCandidateMsg?.time_in_call_secs !== undefined) {
-              firstResponseTime = Math.round(firstCandidateMsg.time_in_call_secs);
-            }
-          }
-
-          // Call is connected if agent spoke (phone was answered)
-          const callConnected = conversationTurns >= 1;
-          
-          // Screening completed if we have evaluation data
-          const screeningCompleted = evalArray.length > 0;
-
-          console.log('[WEBHOOK] Call quality metrics:', {
-            conversationTurns,
-            candidateResponded,
-            callConnected,
-            firstResponseTime
-          });
-
-          // Determine outcome based on screening completion with Human Review support
-          if (screeningCompleted) {
-            const score = updateData.score as number;
-            
-            // Check for low confidence items that should trigger review
-            const lowConfidenceItems = evalArray.filter(r => 
-              r.confidence !== undefined && r.confidence < 0.7
-            );
-            const hasLowConfidence = lowConfidenceItems.length > evalArray.length * 0.3;
-            
-            // Check for security flags that require human review
-            const hasSecurityFlags = updateData.extracted_data?.security_flags?.risk_level === 'high' ||
-                                      updateData.extracted_data?.security_flags?.risk_level === 'medium';
-            
-            // Three-tier outcome logic:
-            // - Score 80-100: Auto pass (unless security flags)
-            // - Score 60-79: Needs human review (ambiguous zone)
-            // - Score 0-59: Auto fail
-            // - Low confidence on >30% of criteria: Needs human review
-            // - Security flags detected: Needs human review
-            if (hasSecurityFlags) {
-              updateData.outcome = 'needs_review';
-              updateData.reasons = ['Security flags detected - potential prompt manipulation, requires human review'];
-              console.log('[WEBHOOK] Security flags detected - flagged for human review');
-            } else if (hasLowConfidence) {
-              updateData.outcome = 'needs_review';
-              updateData.reasons = ['Low confidence on multiple evaluation criteria - requires human review'];
-              console.log('[WEBHOOK] Low confidence detected - flagged for human review');
-            } else if (score >= 80) {
-              updateData.outcome = 'pass';
-            } else if (score >= 60) {
-              updateData.outcome = 'needs_review';
-              updateData.reasons = ['Score in ambiguous range (60-79) - requires human review'];
-              console.log('[WEBHOOK] Ambiguous score - flagged for human review');
-            } else {
-              updateData.outcome = 'fail';
-              // Extract failure reasons
-              const reasons = evalArray
-                .filter(r => r.passed === false || r.result === 'fail')
-                .map(r => r.reason || r.criteria || 'Unknown criteria failed');
-              if (reasons.length > 0) {
-                updateData.reasons = reasons;
-              }
-            }
-          } else {
-            // No evaluation data - call connected but incomplete
-            updateData.outcome = 'incomplete';
-            updateData.score = 0;
-            updateData.reasons = ['Screening incomplete - candidate did not complete all questions'];
-            console.log('[WEBHOOK] No evaluation data - screening incomplete');
-          }
-
-          // Add call quality metrics to update data
-          updateData.conversation_turns = conversationTurns;
-          updateData.candidate_responded = candidateResponded;
-          updateData.call_connected = callConnected;
-          updateData.first_response_time_seconds = firstResponseTime;
-        }
+        console.log(`[WEBHOOK] answer_quality score: ${score}, outcome: ${outcome}`);
+      } else {
+        // === PATH C: No eval criteria AND no save-answer data ===
+        updateData.outcome = callConnected ? 'incomplete' : 'incomplete';
+        updateData.score = 0;
+        updateData.reasons = ['Screening incomplete - no answers captured'];
+        console.log('[WEBHOOK] No evaluation data and no saved answers - screening incomplete');
       }
 
       // Update screen record
@@ -383,43 +385,27 @@ serve(async (req) => {
         throw updateError;
       }
 
-      // Update bulk operation completed count if part of bulk operation
-      const { data: screen } = await supabase
-        .from('screens')
-        .select('bulk_operation_id')
-        .eq('id', screenId)
-        .single();
-
-      if (screen?.bulk_operation_id) {
+      // Update bulk operation count
+      const bulkOpId = existingScreen?.bulk_operation_id;
+      if (bulkOpId) {
         const count_type = updateData.outcome === 'pass' ? 'completed_count' : 'failed_count';
-        const { error: bulkError } = await supabase.rpc('increment_bulk_operation_count', {
-          operation_id: screen.bulk_operation_id,
+        await supabase.rpc('increment_bulk_operation_count', {
+          operation_id: bulkOpId,
           count_type
         });
-        if (bulkError) {
-          console.warn('Could not increment bulk operation count:', bulkError);
-        }
       }
 
       console.log('Screen updated successfully with analysis data');
-    } 
+    }
     // Handle call failure
     else if (webhookData.type === 'call_failed' || webhookData.type === 'conversation_error') {
       console.log('Processing call failure for screen:', screenId);
 
-      const { error: updateError } = await supabase
+      await supabase
         .from('screens')
-        .update({
-          status: 'failed',
-          updated_at: new Date().toISOString()
-        })
+        .update({ status: 'failed', updated_at: new Date().toISOString() })
         .eq('id', screenId);
 
-      if (updateError) {
-        console.error('Error updating screen on failure:', updateError);
-      }
-
-      // Increment failed count for bulk operation
       const { data: screen } = await supabase
         .from('screens')
         .select('bulk_operation_id')
@@ -427,13 +413,10 @@ serve(async (req) => {
         .single();
 
       if (screen?.bulk_operation_id) {
-        const { error: bulkError } = await supabase.rpc('increment_bulk_operation_count', {
+        await supabase.rpc('increment_bulk_operation_count', {
           operation_id: screen.bulk_operation_id,
           count_type: 'failed_count'
         });
-        if (bulkError) {
-          console.warn('Could not increment failed count:', bulkError);
-        }
       }
 
       console.log('Screen marked as failed');

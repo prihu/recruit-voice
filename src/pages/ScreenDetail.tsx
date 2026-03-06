@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -7,32 +7,46 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import {
-  ArrowLeft,
-  Phone,
-  Mail,
-  MapPin,
-  Calendar,
-  Clock,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-  MessageSquare,
-  Mic,
-  Download,
-  ThumbsUp,
-  ThumbsDown,
-  Send,
-  FileJson,
-  FileSpreadsheet,
-  Loader2,
-  PhoneCall,
-  Activity
+  ArrowLeft, Phone, Mail, MapPin, Calendar, Clock,
+  CheckCircle, XCircle, AlertCircle, MessageSquare, Mic,
+  Download, ThumbsUp, ThumbsDown, Send, FileJson, FileSpreadsheet,
+  Loader2, PhoneCall, Activity
 } from 'lucide-react';
 import { VoiceScreening } from '@/components/VoiceScreening';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
 import { toast } from '@/hooks/use-toast';
 import { Screen, Role, Candidate, CallWindow, TranscriptEntry, ScreeningQuestion, FAQEntry, ScoringRule } from '@/types';
 import { safeFormat, safeFormatDistance, parseToDate } from '@/lib/date';
+
+// Slugify helper to match save-answer key format
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .substring(0, 60);
+}
+
+// Find answer for a question using both UUID key and slugified text key
+function findAnswer(answers: Record<string, any>, question: { id: string; text: string }): any | undefined {
+  // Try UUID key first
+  if (answers[question.id] !== undefined) return answers[question.id];
+  // Try slugified text key
+  const slugKey = `q_${slugify(question.text)}`;
+  if (answers[slugKey] !== undefined) return answers[slugKey];
+  return undefined;
+}
+
+// Normalize transcript entries from ElevenLabs format
+function normalizeTranscript(transcript: any[]): TranscriptEntry[] {
+  if (!Array.isArray(transcript)) return [];
+  return transcript.map((entry: any) => ({
+    speaker: entry.speaker || (entry.role === 'user' ? 'candidate' : entry.role === 'agent' ? 'agent' : entry.role || 'agent'),
+    text: entry.text || entry.message || '',
+    timestamp: entry.timestamp || undefined,
+    time_in_call_secs: entry.time_in_call_secs,
+  }));
+}
 
 export default function ScreenDetail() {
   const { id } = useParams();
@@ -41,33 +55,39 @@ export default function ScreenDetail() {
   const [role, setRole] = useState<Role | null>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     fetchScreenData();
+
+    // Auto-refresh every 10 seconds
+    intervalRef.current = setInterval(() => {
+      fetchScreenData(false);
+    }, 10000);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [id]);
 
-  const fetchScreenData = async () => {
+  const fetchScreenData = async (showLoading = true) => {
     if (!id) return;
 
-    setIsLoading(true);
+    if (showLoading) setIsLoading(true);
     try {
-      // Fetch screen data
       const screenData = await demoAPI.getScreen(id);
-
-      // Fetch role data
       const roleData = await demoAPI.getRole(screenData.role_id);
-
-      // Fetch candidate data
       const candidateData = await demoAPI.getCandidate(screenData.candidate_id);
 
-      // Transform the data to match our types
+      const rawTranscript = Array.isArray(screenData.transcript) ? (screenData.transcript as any[]) : [];
+
       const transformedScreen: Screen = {
         id: screenData.id,
         roleId: screenData.role_id,
         candidateId: screenData.candidate_id,
         status: screenData.status as Screen['status'],
         attempts: screenData.attempts,
-        transcript: Array.isArray(screenData.transcript) ? (screenData.transcript as any[]) : [],
+        transcript: normalizeTranscript(rawTranscript),
         audioUrl: screenData.audio_url,
         answers: screenData.answers as Record<string, any> || {},
         score: screenData.score,
@@ -99,7 +119,7 @@ export default function ScreenDetail() {
         questions: Array.isArray(roleData.questions) ? (roleData.questions as any[]) : [],
         faq: Array.isArray(roleData.faq) ? (roleData.faq as any[]) : [],
         rules: Array.isArray(roleData.rules) ? (roleData.rules as any[]) : [],
-        callWindow: typeof roleData.call_window === 'object' && roleData.call_window !== null 
+        callWindow: typeof roleData.call_window === 'object' && roleData.call_window !== null
           ? (roleData.call_window as any)
           : {
               timezone: 'UTC',
@@ -136,19 +156,26 @@ export default function ScreenDetail() {
       setScreen(transformedScreen);
       setRole(transformedRole);
       setCandidate(transformedCandidate);
+
+      // Stop polling once completed or failed
+      if (['completed', 'failed'].includes(screenData.status) && intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load screening data",
-        variant: "destructive"
-      });
+      if (showLoading) {
+        toast({
+          title: "Error",
+          description: "Failed to load screening data",
+          variant: "destructive"
+        });
+      }
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
   const handleVoiceScreeningComplete = async (data: any) => {
-    // Refresh the screen data after voice screening completes
     await fetchScreenData();
     toast({
       title: "Screening Complete",
@@ -180,10 +207,7 @@ export default function ScreenDetail() {
   }
 
   const getOutcomeBadge = (outcome?: string | null) => {
-    if (!outcome) {
-      return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
-    }
-    
+    if (!outcome) return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
     switch (outcome) {
       case 'pass':
         return <Badge className="bg-green-600 text-white hover:bg-green-600/80"><CheckCircle className="w-4 h-4 mr-1" />Pass</Badge>;
@@ -195,6 +219,21 @@ export default function ScreenDetail() {
         return <Badge className="bg-orange-500 text-white hover:bg-orange-500/80"><AlertCircle className="w-4 h-4 mr-1" />Needs Review</Badge>;
       default:
         return <Badge variant="outline" className="text-muted-foreground">-</Badge>;
+    }
+  };
+
+  const getQualityBadge = (quality: string) => {
+    switch (quality?.toLowerCase()) {
+      case 'good':
+        return <Badge className="bg-green-600 text-white"><CheckCircle className="w-3 h-3 mr-1" />Good</Badge>;
+      case 'partial':
+        return <Badge className="bg-yellow-600 text-white"><AlertCircle className="w-3 h-3 mr-1" />Partial</Badge>;
+      case 'poor':
+        return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />Poor</Badge>;
+      case 'skipped':
+        return <Badge variant="outline" className="text-muted-foreground">Skipped</Badge>;
+      default:
+        return <Badge variant="outline">{quality || '-'}</Badge>;
     }
   };
 
@@ -231,27 +270,16 @@ export default function ScreenDetail() {
         {/* Overview Cards */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
-            <CardHeader>
-              <CardTitle>Candidate</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Candidate</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <div>
                 <p className="font-semibold text-lg">{candidate.name}</p>
                 <p className="text-sm text-muted-foreground">{candidate.externalId}</p>
               </div>
               <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-muted-foreground" />
-                  <span>{candidate.phone}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-muted-foreground" />
-                  <span>{candidate.email}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-muted-foreground" />
-                  <span>{candidate.locationPref}</span>
-                </div>
+                <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-muted-foreground" /><span>{candidate.phone}</span></div>
+                <div className="flex items-center gap-2"><Mail className="w-4 h-4 text-muted-foreground" /><span>{candidate.email}</span></div>
+                <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-muted-foreground" /><span>{candidate.locationPref}</span></div>
               </div>
               <Separator />
               <div className="flex flex-wrap gap-1">
@@ -263,14 +291,12 @@ export default function ScreenDetail() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Screening Result</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Screening Result</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Score</span>
                 <div className="w-16 h-16 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground text-2xl font-bold">
-                  {screen.score || '-'}
+                  {screen.score != null ? Math.round(screen.score) : '-'}
                 </div>
               </div>
               <div className="flex items-center justify-between">
@@ -283,28 +309,18 @@ export default function ScreenDetail() {
               </div>
               <Separator />
               
-              {/* Call Details Section */}
+              {/* Call Details */}
               <div className="space-y-2">
                 <span className="text-sm font-medium text-muted-foreground">Call Details</span>
                 {screen.session_id && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Conversation ID</span>
                     <div className="flex items-center gap-2">
-                      <code className="bg-muted px-2 py-1 rounded text-xs font-mono max-w-[200px] truncate">
-                        {screen.session_id}
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => {
-                          navigator.clipboard.writeText(screen.session_id || '');
-                          toast({
-                            title: "Copied",
-                            description: "Conversation ID copied to clipboard",
-                          });
-                        }}
-                      >
+                      <code className="bg-muted px-2 py-1 rounded text-xs font-mono max-w-[200px] truncate">{screen.session_id}</code>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                        navigator.clipboard.writeText(screen.session_id || '');
+                        toast({ title: "Copied", description: "Conversation ID copied to clipboard" });
+                      }}>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
                       </Button>
                     </div>
@@ -320,14 +336,8 @@ export default function ScreenDetail() {
               
               <Separator />
               <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <span>{safeFormat(screen.createdAt, 'PPP')}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-muted-foreground" />
-                  <span>{safeFormatDistance(screen.updatedAt, { addSuffix: true })}</span>
-                </div>
+                <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span>{safeFormat(screen.createdAt, 'PPP')}</span></div>
+                <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-muted-foreground" /><span>{safeFormatDistance(screen.updatedAt, { addSuffix: true })}</span></div>
               </div>
               {screen.reasons && screen.reasons.length > 0 && (
                 <>
@@ -337,8 +347,7 @@ export default function ScreenDetail() {
                     <ul className="space-y-1">
                       {screen.reasons.map((reason, idx) => (
                         <li key={idx} className="text-sm flex items-start gap-2 text-destructive">
-                          <XCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                          <span>{reason}</span>
+                          <XCircle className="h-4 w-4 mt-0.5 flex-shrink-0" /><span>{reason}</span>
                         </li>
                       ))}
                     </ul>
@@ -349,23 +358,21 @@ export default function ScreenDetail() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Actions</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Actions</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <Button className="w-full bg-success hover:bg-success/90">
-                <ThumbsUp className="w-4 h-4 mr-2" />
-                Advance Candidate
-              </Button>
-              <Button variant="destructive" className="w-full">
-                <ThumbsDown className="w-4 h-4 mr-2" />
-                Reject Candidate
-              </Button>
-              <Button variant="outline" className="w-full">
-                <Send className="w-4 h-4 mr-2" />
-                Schedule Follow-up
-              </Button>
-              <Button variant="outline" className="w-full">
+              <Button className="w-full bg-success hover:bg-success/90"><ThumbsUp className="w-4 h-4 mr-2" />Advance Candidate</Button>
+              <Button variant="destructive" className="w-full"><ThumbsDown className="w-4 h-4 mr-2" />Reject Candidate</Button>
+              <Button variant="outline" className="w-full"><Send className="w-4 h-4 mr-2" />Schedule Follow-up</Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={!screen.recording_url}
+                onClick={() => {
+                  if (screen.recording_url) {
+                    window.open(screen.recording_url, '_blank');
+                  }
+                }}
+              >
                 <Download className="w-4 h-4 mr-2" />
                 Download Recording
               </Button>
@@ -376,74 +383,42 @@ export default function ScreenDetail() {
           {screen.status === 'completed' && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  Call Quality Metrics
-                </CardTitle>
+                <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" />Call Quality Metrics</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {/* Call Connected Status */}
                   <div className="space-y-1">
                     <div className="text-sm text-muted-foreground">Call Connected</div>
                     <div className="flex items-center gap-2">
-                      {screen.call_connected ? (
-                        <CheckCircle className="h-4 w-4 text-success" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-destructive" />
-                      )}
-                      <span className="font-medium">
-                        {screen.call_connected ? 'Yes' : 'No'}
-                      </span>
+                      {screen.call_connected ? <CheckCircle className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-destructive" />}
+                      <span className="font-medium">{screen.call_connected ? 'Yes' : 'No'}</span>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      Phone answered
-                    </div>
+                    <div className="text-xs text-muted-foreground">Phone answered</div>
                   </div>
-
-                  {/* Candidate Responded */}
                   <div className="space-y-1">
                     <div className="text-sm text-muted-foreground">Candidate Responded</div>
                     <div className="flex items-center gap-2">
-                      {screen.candidate_responded ? (
-                        <CheckCircle className="h-4 w-4 text-success" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-destructive" />
-                      )}
-                      <span className="font-medium">
-                        {screen.candidate_responded ? 'Yes' : 'No'}
-                      </span>
+                      {screen.candidate_responded ? <CheckCircle className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-destructive" />}
+                      <span className="font-medium">{screen.candidate_responded ? 'Yes' : 'No'}</span>
                     </div>
                   </div>
-
-                  {/* Conversation Turns */}
                   <div className="space-y-1">
                     <div className="text-sm text-muted-foreground">Conversation Turns</div>
                     <div className="flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium text-lg">
-                        {screen.conversation_turns || 0}
-                      </span>
+                      <span className="font-medium text-lg">{screen.conversation_turns || 0}</span>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      Total messages
-                    </div>
+                    <div className="text-xs text-muted-foreground">Total messages</div>
                   </div>
-
-                  {/* First Response Time */}
                   <div className="space-y-1">
                     <div className="text-sm text-muted-foreground">First Response</div>
-                    {screen.first_response_time_seconds !== null && screen.first_response_time_seconds !== undefined ? (
+                    {screen.first_response_time_seconds != null ? (
                       <>
                         <div className="flex items-center gap-2">
                           <Clock className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium text-lg">
-                            {screen.first_response_time_seconds}s
-                          </span>
+                          <span className="font-medium text-lg">{screen.first_response_time_seconds}s</span>
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          Time to engage
-                        </div>
+                        <div className="text-xs text-muted-foreground">Time to engage</div>
                       </>
                     ) : (
                       <span className="text-muted-foreground">-</span>
@@ -451,27 +426,20 @@ export default function ScreenDetail() {
                   </div>
                 </div>
 
-                {/* Quality Indicator Bar */}
                 <div className="mt-4 pt-4 border-t">
                   <div className="text-sm text-muted-foreground mb-2">Call Quality</div>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full transition-all ${
-                          screen.call_connected && (screen.conversation_turns || 0) > 5
-                            ? 'bg-success w-full'
-                            : screen.call_connected
-                            ? 'bg-warning w-2/3'
-                            : 'bg-destructive w-1/3'
-                        }`}
-                      />
+                      <div className={`h-full transition-all ${
+                        screen.call_connected && (screen.conversation_turns || 0) > 5
+                          ? 'bg-success w-full'
+                          : screen.call_connected
+                          ? 'bg-warning w-2/3'
+                          : 'bg-destructive w-1/3'
+                      }`} />
                     </div>
                     <span className="text-sm font-medium">
-                      {screen.call_connected && (screen.conversation_turns || 0) > 5
-                        ? 'Good'
-                        : screen.call_connected
-                        ? 'Fair'
-                        : 'Poor'}
+                      {screen.call_connected && (screen.conversation_turns || 0) > 5 ? 'Good' : screen.call_connected ? 'Fair' : 'Poor'}
                     </span>
                   </div>
                 </div>
@@ -483,10 +451,7 @@ export default function ScreenDetail() {
         {/* Tabs */}
         <Tabs defaultValue="voice">
           <TabsList className="grid w-full grid-cols-4 max-w-lg">
-            <TabsTrigger value="voice">
-              <PhoneCall className="w-4 h-4 mr-1" />
-              Voice
-            </TabsTrigger>
+            <TabsTrigger value="voice"><PhoneCall className="w-4 h-4 mr-1" />Voice</TabsTrigger>
             <TabsTrigger value="answers">Answers</TabsTrigger>
             <TabsTrigger value="transcript">Transcript</TabsTrigger>
             <TabsTrigger value="reasons">Analysis</TabsTrigger>
@@ -511,49 +476,75 @@ export default function ScreenDetail() {
                 <CardDescription>Candidate responses to screening questions</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {role.questions?.map((question, index) => (
-                  <div key={question.id} className="space-y-2 p-4 border rounded-lg bg-card-hover">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className="font-medium">
-                          {index + 1}. {question.text}
-                        </p>
-                        <div className="mt-2">
-                          {screen.answers && screen.answers[question.id] !== undefined ? (
-                            <div className="flex items-center gap-2">
-                              {typeof screen.answers[question.id] === 'boolean' ? (
-                                screen.answers[question.id] ? (
-                                  <Badge className="bg-success text-success-foreground">
-                                    <CheckCircle className="w-3 h-3 mr-1" />
-                                    Yes
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="destructive">
-                                    <XCircle className="w-3 h-3 mr-1" />
-                                    No
-                                  </Badge>
-                                )
-                              ) : Array.isArray(screen.answers[question.id]) ? (
-                                <div className="flex flex-wrap gap-1">
-                                  {screen.answers[question.id].map((item: string, idx: number) => (
-                                    <Badge key={idx} variant="secondary">{item}</Badge>
-                                  ))}
+                {role.questions?.map((question, index) => {
+                  const answer = screen.answers ? findAnswer(screen.answers, question) : undefined;
+                  const isSaveAnswerFormat = answer && typeof answer === 'object' && 'candidate_answer' in answer;
+
+                  return (
+                    <div key={question.id} className="space-y-2 p-4 border rounded-lg bg-card-hover">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <p className="font-medium">{index + 1}. {question.text}</p>
+                          <div className="mt-2">
+                            {answer !== undefined ? (
+                              isSaveAnswerFormat ? (
+                                <div className="space-y-2">
+                                  <p className="text-sm">{answer.candidate_answer}</p>
+                                  <div className="flex items-center gap-2">
+                                    {getQualityBadge(answer.answer_quality)}
+                                  </div>
+                                </div>
+                              ) : typeof answer === 'boolean' ? (
+                                <div className="flex items-center gap-2">
+                                  {answer ? (
+                                    <Badge className="bg-success text-success-foreground"><CheckCircle className="w-3 h-3 mr-1" />Yes</Badge>
+                                  ) : (
+                                    <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />No</Badge>
+                                  )}
+                                </div>
+                              ) : typeof answer === 'object' && answer?.answer ? (
+                                <div className="space-y-1">
+                                  <p className="text-sm">{answer.answer}</p>
+                                  {answer.passed !== undefined && (
+                                    answer.passed
+                                      ? <Badge className="bg-success text-success-foreground"><CheckCircle className="w-3 h-3 mr-1" />Pass</Badge>
+                                      : <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />Fail</Badge>
+                                  )}
                                 </div>
                               ) : (
-                                <p className="text-sm">{screen.answers[question.id]}</p>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">No answer provided</span>
-                          )}
+                                <p className="text-sm">{String(answer)}</p>
+                              )
+                            ) : (
+                              <span className="text-sm text-muted-foreground">No answer provided</span>
+                            )}
+                          </div>
+                        </div>
+                        {question.required && <Badge variant="outline">Required</Badge>}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Show any answers that don't match a question (extra save-answer entries) */}
+                {screen.answers && (() => {
+                  const questionIds = new Set(role.questions?.map(q => q.id) || []);
+                  const questionSlugs = new Set(role.questions?.map(q => `q_${slugify(q.text)}`) || []);
+                  const unmatchedEntries = Object.entries(screen.answers).filter(
+                    ([key]) => !questionIds.has(key) && !questionSlugs.has(key)
+                  );
+                  if (unmatchedEntries.length === 0) return null;
+                  return unmatchedEntries.map(([key, answer]: [string, any]) => (
+                    <div key={key} className="space-y-2 p-4 border rounded-lg bg-card-hover">
+                      <div className="flex-1">
+                        <p className="font-medium">{answer?.question_text || key}</p>
+                        <div className="mt-2 space-y-2">
+                          <p className="text-sm">{answer?.candidate_answer || JSON.stringify(answer)}</p>
+                          {answer?.answer_quality && getQualityBadge(answer.answer_quality)}
                         </div>
                       </div>
-                      {question.required && (
-                        <Badge variant="outline">Required</Badge>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  ));
+                })()}
               </CardContent>
             </Card>
           </TabsContent>
@@ -569,29 +560,27 @@ export default function ScreenDetail() {
                 {screen.transcript && screen.transcript.length > 0 ? (
                   <div className="space-y-4">
                     {screen.transcript.map((entry, index) => {
-                      const timestamp = parseToDate(entry.timestamp);
-                      
+                      const isAgent = entry.speaker === 'agent';
+                      // Use time_in_call_secs for display, fallback to timestamp
+                      const timeDisplay = (entry as any).time_in_call_secs != null
+                        ? `${Math.floor((entry as any).time_in_call_secs / 60)}:${String(Math.floor((entry as any).time_in_call_secs % 60)).padStart(2, '0')}`
+                        : entry.timestamp ? safeFormat(parseToDate(entry.timestamp), 'HH:mm:ss') : null;
+
                       return (
-                        <div key={index} className={`flex gap-3 ${entry.speaker === 'agent' ? '' : 'flex-row-reverse'}`}>
+                        <div key={index} className={`flex gap-3 ${isAgent ? '' : 'flex-row-reverse'}`}>
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            entry.speaker === 'agent' 
-                              ? 'bg-primary text-primary-foreground' 
-                              : 'bg-muted text-muted-foreground'
+                            isAgent ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
                           }`}>
-                            {entry.speaker === 'agent' ? <Mic className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
+                            {isAgent ? <Mic className="w-4 h-4" /> : <MessageSquare className="w-4 h-4" />}
                           </div>
-                          <div className={`flex-1 ${entry.speaker === 'agent' ? '' : 'text-right'}`}>
+                          <div className={`flex-1 ${isAgent ? '' : 'text-right'}`}>
                             <div className={`inline-block p-3 rounded-lg ${
-                              entry.speaker === 'agent' 
-                                ? 'bg-muted text-foreground' 
-                                : 'bg-primary text-primary-foreground'
+                              isAgent ? 'bg-muted text-foreground' : 'bg-primary text-primary-foreground'
                             }`}>
                               <p className="text-sm">{entry.text}</p>
                             </div>
-                            {timestamp && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {safeFormat(timestamp, 'HH:mm:ss')}
-                              </p>
+                            {timeDisplay && (
+                              <p className="text-xs text-muted-foreground mt-1">{timeDisplay}</p>
                             )}
                           </div>
                         </div>
@@ -611,20 +600,15 @@ export default function ScreenDetail() {
           {/* Analysis Tab */}
           <TabsContent value="reasons" className="space-y-4">
             {/* AI Summary Card */}
-            {(screen as any).ai_summary && (
+            {screen.ai_summary && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="h-5 w-5" />
-                    AI Summary
-                  </CardTitle>
+                  <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" />AI Summary</CardTitle>
                   <CardDescription>ElevenLabs AI analysis of the conversation</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="p-4 bg-muted rounded-lg">
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                      {(screen as any).ai_summary}
-                    </p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{screen.ai_summary}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -638,34 +622,37 @@ export default function ScreenDetail() {
                   <CardDescription>Detailed pass/fail breakdown</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {Object.entries(screen.answers).map(([questionId, answer]: [string, any]) => {
-                    const question = role.questions?.find(q => q.id === questionId);
-                    const passed = answer?.passed;
+                  {Object.entries(screen.answers).map(([key, answer]: [string, any]) => {
+                    // Try to match to a question
+                    const question = role.questions?.find(q => q.id === key) ||
+                      role.questions?.find(q => `q_${slugify(q.text)}` === key);
+                    
+                    const isSaveAnswerFormat = answer && typeof answer === 'object' && 'candidate_answer' in answer;
+                    const passed = isSaveAnswerFormat
+                      ? answer.answer_quality?.toLowerCase() === 'good'
+                      : answer?.passed;
                     
                     return (
-                      <div key={questionId} className="p-3 border rounded-lg">
+                      <div key={key} className="p-3 border rounded-lg">
                         <div className="flex items-start justify-between mb-2">
                           <p className="font-medium text-sm flex-1">
-                            {question?.text || 'Unknown Question'}
+                            {question?.text || answer?.question_text || key}
                           </p>
-                          {passed !== undefined && (
+                          {isSaveAnswerFormat ? (
+                            getQualityBadge(answer.answer_quality)
+                          ) : passed !== undefined ? (
                             passed ? (
-                              <Badge className="bg-success text-success-foreground">
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                Pass
-                              </Badge>
+                              <Badge className="bg-success text-success-foreground"><CheckCircle className="w-3 h-3 mr-1" />Pass</Badge>
                             ) : (
-                              <Badge variant="destructive">
-                                <XCircle className="w-3 h-3 mr-1" />
-                                Fail
-                              </Badge>
+                              <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />Fail</Badge>
                             )
-                          )}
+                          ) : null}
                         </div>
+                        {isSaveAnswerFormat && (
+                          <p className="text-sm text-muted-foreground mt-1">{answer.candidate_answer}</p>
+                        )}
                         {answer?.reason && (
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {answer.reason}
-                          </p>
+                          <p className="text-sm text-muted-foreground mt-1">{answer.reason}</p>
                         )}
                       </div>
                     );
@@ -691,9 +678,7 @@ export default function ScreenDetail() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No issues identified
-                  </p>
+                  <p className="text-sm text-muted-foreground text-center py-4">No issues identified</p>
                 )}
               </CardContent>
             </Card>
