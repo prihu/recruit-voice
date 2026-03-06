@@ -110,8 +110,13 @@ export default function Screens() {
 
   useEffect(() => {
     fetchScreens();
-    // Note: Realtime subscriptions removed for demo mode
-    // In demo mode, users can manually refresh to see updates
+
+    // Auto-refresh every 15 seconds to pick up status changes
+    const interval = setInterval(() => {
+      fetchScreens(false);
+    }, 15000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleRecoverStuckCalls = async () => {
