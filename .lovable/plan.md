@@ -1,32 +1,36 @@
 
 
-## Yes — We Can Re-fetch from ElevenLabs API
+## Plan: Graceful 404 handling for Download Recording
 
-The `recover-stuck-screens` function already calls `GET https://api.elevenlabs.io/v1/convai/conversations/{session_id}` to fetch transcript, analysis, and metadata. The problem is it only targets screens with `status = 'in_progress'`. Screen `33d2b434` is already `completed` (with null answers).
+The edge function currently returns a generic `502` with `{"error":"ElevenLabs API error: 404"}` when the recording doesn't exist. The client-side already partially handles this but it's fragile (string matching).
 
-## Plan: Create a `refetch-screen-data` Edge Function
+### Changes
 
-A small edge function that takes a `screen_id`, fetches the conversation data from ElevenLabs, and re-runs the updated scoring logic (which now preserves save-answer data).
+**1. `supabase/functions/get-conversation-audio/index.ts`** — Return a proper 404 with a clear JSON body when ElevenLabs returns 404, instead of a generic 502:
 
-### New file: `supabase/functions/refetch-screen-data/index.ts`
+```typescript
+if (response.status === 404) {
+  return new Response(
+    JSON.stringify({ error: 'recording_not_found', message: 'No audio recording found for this conversation.' }),
+    { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+```
 
-1. Accept `{ screen_id }` in the request body
-2. Fetch the screen record (including `session_id`, `answers`, `role_id`)
-3. Call ElevenLabs API: `GET /v1/convai/conversations/{session_id}`
-4. Run the same processing as the updated webhook:
-   - Extract transcript, duration, recording_url, ai_summary
-   - Check for evaluation_criteria_results
-   - If no eval criteria, check existing `answers` from DB — but since answers are NULL for this screen, also check the ElevenLabs conversation's `collected_tool_results` (the save-answer tool calls are logged there by ElevenLabs)
-   - Score using `answer_quality` and set outcome
-   - Update the screen record
+**2. `src/pages/ScreenDetail.tsx`** — Simplify the client-side check to handle `404` directly alongside the existing `502` check:
 
-### Edit: `src/pages/ScreenDetail.tsx`
+```typescript
+if (!resp.ok) {
+  if (resp.status === 404 || (resp.status === 502 && (await resp.clone().text()).includes('404'))) {
+    toast({ title: "Recording Not Available", description: "No audio recording found. It may not have been enabled or has expired.", variant: "destructive" });
+    return;
+  }
+  throw new Error(`HTTP ${resp.status}`);
+}
+```
 
-- Add a "Re-fetch from ElevenLabs" button (visible when `session_id` exists)
-- Calls `supabase.functions.invoke('refetch-screen-data', { body: { screen_id } })`
-- Refreshes screen data on success
-
-### Key insight: ElevenLabs stores tool call results
-
-The ElevenLabs conversation GET endpoint returns `collected_tool_results` which contains all the save-answer tool invocations with the structured answer data. Even though the DB answers were overwritten to NULL, the original data lives in ElevenLabs' API response. The refetch function will extract answers from there.
+| File | Change |
+|------|--------|
+| `supabase/functions/get-conversation-audio/index.ts` | Return 404 status (not 502) when ElevenLabs says not found |
+| `src/pages/ScreenDetail.tsx` | Handle direct 404 response cleanly |
 
