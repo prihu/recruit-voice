@@ -72,7 +72,7 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
   return flags;
 }
 
-function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags): {
+function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags, totalQuestions?: number): {
   score: number;
   outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
   reasons: string[];
@@ -89,9 +89,16 @@ function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: Se
     else if (quality === 'partial') sum += 0.5;
   }
 
-  const score = Math.round((sum / entries.length) * 100);
+  const denominator = totalQuestions ? Math.max(totalQuestions, entries.length) : entries.length;
+  const score = Math.round((sum / denominator) * 100);
   const reasons: string[] = [];
   const hasSecurityFlags = securityFlags && (securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium');
+
+  // Completeness check: not all questions answered → incomplete
+  if (totalQuestions && entries.length < totalQuestions) {
+    reasons.push(`Only ${entries.length} of ${totalQuestions} questions answered`);
+    return { score, outcome: 'incomplete', reasons };
+  }
 
   let outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
   if (hasSecurityFlags) {
@@ -461,10 +468,34 @@ Deno.serve(async (req) => {
       reasons = ['No answers captured'];
     }
 
+    // === Extract completed_at from ElevenLabs metadata ===
+    let callEndTime = screen.completed_at;
+    if (!callEndTime) {
+      if (metadata.end_time_unix_secs) {
+        callEndTime = new Date(metadata.end_time_unix_secs * 1000).toISOString();
+      } else if (metadata.start_time_unix_secs && metadata.call_duration_secs) {
+        callEndTime = new Date((metadata.start_time_unix_secs + metadata.call_duration_secs) * 1000).toISOString();
+      } else if (metadata.start_time_unix_secs && metadata.duration_seconds) {
+        callEndTime = new Date((metadata.start_time_unix_secs + metadata.duration_seconds) * 1000).toISOString();
+      } else {
+        callEndTime = new Date().toISOString();
+      }
+    }
+
+    // === Determine total questions ===
+    let totalQuestionsForUpdate: number | undefined;
+    {
+      const { data: roleDataForCount } = await supabase
+        .from('roles').select('questions').eq('id', screen.role_id).single();
+      if (roleDataForCount?.questions && Array.isArray(roleDataForCount.questions)) {
+        totalQuestionsForUpdate = roleDataForCount.questions.length;
+      }
+    }
+
     // === Build update ===
     const updateData: any = {
       status: 'completed',
-      completed_at: screen.completed_at || new Date().toISOString(),
+      completed_at: callEndTime,
       updated_at: new Date().toISOString(),
       score,
       outcome,
@@ -473,6 +504,7 @@ Deno.serve(async (req) => {
       candidate_responded: candidateResponded,
       call_connected: callConnected,
       first_response_time_seconds: firstResponseTime,
+      total_questions: totalQuestionsForUpdate || null,
     };
 
     // Set answers if we recovered them

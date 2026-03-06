@@ -11,7 +11,6 @@ import {
   Plus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { QuickActionsMenu } from '@/components/QuickActionsMenu';
 import { BulkScreeningModal } from '@/components/BulkScreeningModal';
 import { Badge } from '@/components/ui/badge';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
@@ -118,7 +117,6 @@ export function AppLayout({ children }: AppLayoutProps) {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
-            <QuickActionsMenu onOpenBulkScreening={() => setShowBulkScreening(true)} />
             <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-medium text-sm">
               JD
             </div>

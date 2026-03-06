@@ -103,3 +103,6 @@ verify_jwt = false
 
 [functions.refetch-screen-data]
 verify_jwt = true
+
+[functions.get-conversation-audio]
+verify_jwt = true
