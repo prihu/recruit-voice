@@ -1,24 +1,25 @@
 
 
 ## Problem
-
-Two places filter for "active" screens — the client-side `BulkScreeningModal.tsx` (already fixed) and the server-side `demo-api-bulk-screenings/index.ts` (line 376). The server still includes `'completed'` in its active statuses:
-
-```typescript
-.in('status', ['pending', 'in_progress', 'scheduled', 'completed']);
-```
-
-This causes Priyank to be skipped server-side with the log message "Skipping 1 candidates with existing active screens", even though his screen is finished.
+The Screens page only fetches data once on mount. After a bulk screening call completes, the status stays "pending" until the user manually clicks Refresh.
 
 ## Fix
+Add a 15-second polling interval to `useEffect` in `src/pages/Screens.tsx` that auto-refreshes the list silently (without showing the loading spinner). This is simple, reliable, and avoids the complexity of Realtime subscriptions in demo mode.
 
-**File: `supabase/functions/demo-api-bulk-screenings/index.ts`** (line 376)
-
-Remove `'completed'` from the status filter:
+**File: `src/pages/Screens.tsx`** — Update the `useEffect` (around lines 108-112):
 
 ```typescript
-.in('status', ['pending', 'in_progress', 'scheduled']);
+useEffect(() => {
+  fetchScreens();
+
+  // Auto-refresh every 15 seconds to pick up status changes
+  const interval = setInterval(() => {
+    fetchScreens(false);
+  }, 15000);
+
+  return () => clearInterval(interval);
+}, []);
 ```
 
-This single-line change aligns the server with the client fix, allowing candidates with only completed screens to be re-screened.
+This single change ensures the table updates automatically after calls complete, without requiring manual refresh clicks.
 
