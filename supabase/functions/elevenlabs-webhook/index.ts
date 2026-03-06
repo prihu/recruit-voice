@@ -116,7 +116,7 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
  * good=1.0, partial=0.5, poor/skipped=0.0
  * Returns { score, outcome, reasons }
  */
-function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags): {
+function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags, totalQuestions?: number): {
   score: number;
   outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
   reasons: string[];
@@ -131,13 +131,18 @@ function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: Se
     const quality = (entry?.answer_quality || '').toLowerCase();
     if (quality === 'good') sum += 1.0;
     else if (quality === 'partial') sum += 0.5;
-    // poor, skipped, or unknown = 0
   }
 
-  const score = Math.round((sum / entries.length) * 100);
+  const denominator = totalQuestions ? Math.max(totalQuestions, entries.length) : entries.length;
+  const score = Math.round((sum / denominator) * 100);
   const reasons: string[] = [];
 
-  // Check security flags first
+  // Completeness check: if not all questions answered → incomplete
+  if (totalQuestions && entries.length < totalQuestions) {
+    reasons.push(`Only ${entries.length} of ${totalQuestions} questions answered`);
+    return { score, outcome: 'incomplete', reasons };
+  }
+
   const hasSecurityFlags = securityFlags && (securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium');
   
   let outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
@@ -151,7 +156,6 @@ function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: Se
     reasons.push('Score in ambiguous range (60-79) - requires human review');
   } else {
     outcome = 'fail';
-    // Add failure reasons from individual answers
     for (const entry of entries) {
       const quality = (entry?.answer_quality || '').toLowerCase();
       if (quality === 'poor' || quality === 'skipped') {
@@ -360,13 +364,24 @@ serve(async (req) => {
         // === PATH B: Fallback — score from save-answer tool's answer_quality ===
         console.log('[WEBHOOK] No eval criteria, falling back to answer_quality scoring');
         
-        const { score, outcome, reasons } = scoreFromAnswerQuality(existingAnswers, securityFlags);
+        // Fetch totalQuestions from the role
+        let totalQuestions: number | undefined;
+        const roleId = customData?.role_id;
+        if (roleId) {
+          const { data: roleData } = await supabase
+            .from('roles').select('questions').eq('id', roleId).single();
+          if (roleData?.questions && Array.isArray(roleData.questions)) {
+            totalQuestions = roleData.questions.length;
+          }
+        }
+        
+        const { score, outcome, reasons } = scoreFromAnswerQuality(existingAnswers, securityFlags, totalQuestions);
         updateData.score = score;
         updateData.outcome = outcome;
+        updateData.questions_answered = Object.keys(existingAnswers).length;
+        updateData.total_questions = totalQuestions || 0;
         if (reasons.length > 0) updateData.reasons = reasons;
         
-        // Don't overwrite answers — keep save-answer data
-        // But store security flags if any
         const extractedData: any = {};
         if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
           extractedData.security_flags = securityFlags;
@@ -408,11 +423,21 @@ serve(async (req) => {
         }
 
         if (Object.keys(toolAnswers).length > 0) {
-          // Score from recovered tool call data
+          // Fetch totalQuestions from the role
+          let totalQuestions: number | undefined;
+          const roleId = customData?.role_id;
+          if (roleId) {
+            const { data: roleData } = await supabase
+              .from('roles').select('questions').eq('id', roleId).single();
+            if (roleData?.questions && Array.isArray(roleData.questions)) {
+              totalQuestions = roleData.questions.length;
+            }
+          }
           updateData.answers = toolAnswers;
           updateData.questions_answered = Object.keys(toolAnswers).length;
+          updateData.total_questions = totalQuestions || 0;
           updateData.candidate_responded = true;
-          const { score, outcome, reasons } = scoreFromAnswerQuality(toolAnswers, securityFlags);
+          const { score, outcome, reasons } = scoreFromAnswerQuality(toolAnswers, securityFlags, totalQuestions);
           updateData.score = score;
           updateData.outcome = outcome;
           if (reasons.length > 0) updateData.reasons = reasons;
