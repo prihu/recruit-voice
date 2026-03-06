@@ -68,7 +68,7 @@ export function BulkScreeningModal({
       try {
         const result = await demoAPI.getScreenings();
         const screens = result?.screens || result || [];
-        const activeStatuses = ['pending', 'in_progress', 'scheduled', 'completed'];
+        const activeStatuses = ['pending', 'in_progress', 'scheduled'];
         const activeIds = new Set<string>(
           screens
             .filter((s: any) => s.role_id === selectedRole && activeStatuses.includes(s.status))
