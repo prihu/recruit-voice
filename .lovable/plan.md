@@ -1,32 +1,32 @@
 
 
-## Yes — We Can Re-fetch from ElevenLabs API
+## Three Issues to Fix
 
-The `recover-stuck-screens` function already calls `GET https://api.elevenlabs.io/v1/convai/conversations/{session_id}` to fetch transcript, analysis, and metadata. The problem is it only targets screens with `status = 'in_progress'`. Screen `33d2b434` is already `completed` (with null answers).
+### Issue 1: "Call Ended" time still wrong
+**Root cause**: Line 472 in `refetch-screen-data` has `if (!callEndTime)` -- it preserves the OLD wrong `completed_at` value that was set during a previous refetch (before the fix was deployed). On refetch, we should ALWAYS overwrite `completed_at` from ElevenLabs metadata, not preserve stale data.
 
-## Plan: Create a `refetch-screen-data` Edge Function
+**Fix**: Remove the `if (!callEndTime)` guard. Always extract from ElevenLabs metadata when refetching.
 
-A small edge function that takes a `screen_id`, fetches the conversation data from ElevenLabs, and re-runs the updated scoring logic (which now preserves save-answer data).
+### Issue 2: Status still shows "Completed"
+**Root cause**: Line 497 in `refetch-screen-data` hardcodes `status: 'completed'`. The `outcome` field correctly shows `incomplete` (logs confirm: "score: 13, outcome: incomplete"), but `status` stays `completed`. When outcome is `incomplete`, status should also reflect that.
 
-### New file: `supabase/functions/refetch-screen-data/index.ts`
+**Fix**: Set `status` based on outcome:
+```
+if outcome == 'incomplete' → status = 'incomplete'  
+else → status = 'completed'
+```
 
-1. Accept `{ screen_id }` in the request body
-2. Fetch the screen record (including `session_id`, `answers`, `role_id`)
-3. Call ElevenLabs API: `GET /v1/convai/conversations/{session_id}`
-4. Run the same processing as the updated webhook:
-   - Extract transcript, duration, recording_url, ai_summary
-   - Check for evaluation_criteria_results
-   - If no eval criteria, check existing `answers` from DB — but since answers are NULL for this screen, also check the ElevenLabs conversation's `collected_tool_results` (the save-answer tool calls are logged there by ElevenLabs)
-   - Score using `answer_quality` and set outcome
-   - Update the screen record
+### Issue 3: Downloaded recording not playable
+**Root cause**: ElevenLabs returns `application/octet-stream` binary data. `supabase.functions.invoke()` internally parses the response, likely corrupting the binary audio. The client code at line 401 does `new Blob([data])` but `data` may already be mangled by the SDK's response parsing.
 
-### Edit: `src/pages/ScreenDetail.tsx`
+**Fix**: Use raw `fetch()` with the full Supabase function URL instead of `supabase.functions.invoke()`, so we get the raw binary response directly as an ArrayBuffer.
 
-- Add a "Re-fetch from ElevenLabs" button (visible when `session_id` exists)
-- Calls `supabase.functions.invoke('refetch-screen-data', { body: { screen_id } })`
-- Refreshes screen data on success
+---
 
-### Key insight: ElevenLabs stores tool call results
+### Changes
 
-The ElevenLabs conversation GET endpoint returns `collected_tool_results` which contains all the save-answer tool invocations with the structured answer data. Even though the DB answers were overwritten to NULL, the original data lives in ElevenLabs' API response. The refetch function will extract answers from there.
+| File | Change |
+|------|--------|
+| `supabase/functions/refetch-screen-data/index.ts` | Always overwrite `completed_at` from ElevenLabs metadata (remove `if (!callEndTime)` guard); set `status` based on `outcome` |
+| `src/pages/ScreenDetail.tsx` | Use raw `fetch()` for audio download instead of `supabase.functions.invoke()` |
 
