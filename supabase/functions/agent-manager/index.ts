@@ -498,6 +498,13 @@ serve(async (req) => {
           agent_error_message: null,
         }).eq('id', roleId);
 
+        // Reassign phone number to ensure it stays bound to this agent
+        const twilioConfig = (role.organization as any)?.twilio_config;
+        const agentPhoneNumberId = twilioConfig?.agent_phone_number_id;
+        if (agentPhoneNumberId) {
+          await reassignPhoneNumber(ELEVENLABS_API_KEY, agentPhoneNumberId, role.voice_agent_id);
+        }
+
         return new Response(
           JSON.stringify({ success: true, message: 'Agent updated successfully' }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
