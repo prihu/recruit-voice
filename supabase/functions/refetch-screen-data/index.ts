@@ -468,18 +468,16 @@ Deno.serve(async (req) => {
       reasons = ['No answers captured'];
     }
 
-    // === Extract completed_at from ElevenLabs metadata ===
-    let callEndTime = screen.completed_at;
-    if (!callEndTime) {
-      if (metadata.end_time_unix_secs) {
-        callEndTime = new Date(metadata.end_time_unix_secs * 1000).toISOString();
-      } else if (metadata.start_time_unix_secs && metadata.call_duration_secs) {
-        callEndTime = new Date((metadata.start_time_unix_secs + metadata.call_duration_secs) * 1000).toISOString();
-      } else if (metadata.start_time_unix_secs && metadata.duration_seconds) {
-        callEndTime = new Date((metadata.start_time_unix_secs + metadata.duration_seconds) * 1000).toISOString();
-      } else {
-        callEndTime = new Date().toISOString();
-      }
+    // === Extract completed_at from ElevenLabs metadata (always overwrite) ===
+    let callEndTime: string;
+    if (metadata.end_time_unix_secs) {
+      callEndTime = new Date(metadata.end_time_unix_secs * 1000).toISOString();
+    } else if (metadata.start_time_unix_secs && metadata.call_duration_secs) {
+      callEndTime = new Date((metadata.start_time_unix_secs + metadata.call_duration_secs) * 1000).toISOString();
+    } else if (metadata.start_time_unix_secs && metadata.duration_seconds) {
+      callEndTime = new Date((metadata.start_time_unix_secs + metadata.duration_seconds) * 1000).toISOString();
+    } else {
+      callEndTime = screen.completed_at || new Date().toISOString();
     }
 
     // === Determine total questions ===
@@ -494,7 +492,7 @@ Deno.serve(async (req) => {
 
     // === Build update ===
     const updateData: any = {
-      status: 'completed',
+      status: outcome === 'incomplete' ? 'incomplete' : 'completed',
       completed_at: callEndTime,
       updated_at: new Date().toISOString(),
       score,
