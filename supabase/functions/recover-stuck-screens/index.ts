@@ -51,13 +51,11 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
     return flags;
   }
 
-  // Only check candidate/user messages
   const candidateMessages = transcript
     .filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate')
-    .map((msg: any) => msg.text || '')
+    .map((msg: any) => msg.text || msg.message || '')
     .join(' ');
 
-  // Check for injection patterns
   for (const pattern of INJECTION_PATTERNS) {
     if (pattern.test(candidateMessages)) {
       flags.injection_detected = true;
@@ -65,7 +63,6 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
     }
   }
 
-  // Check for manipulation patterns
   for (const pattern of MANIPULATION_PATTERNS) {
     if (pattern.test(candidateMessages)) {
       flags.manipulation_detected = true;
@@ -73,7 +70,6 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
     }
   }
 
-  // Determine risk level
   if (flags.injection_detected && flags.manipulation_detected) {
     flags.risk_level = 'high';
   } else if (flags.injection_detected || flags.manipulation_detected) {
@@ -83,8 +79,54 @@ function detectSecurityIssues(transcript: any[]): SecurityFlags {
   return flags;
 }
 
+/**
+ * Score answers using answer_quality from the save-answer tool.
+ * good=1.0, partial=0.5, poor/skipped=0.0
+ */
+function scoreFromAnswerQuality(answers: Record<string, any>, securityFlags?: SecurityFlags): {
+  score: number;
+  outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
+  reasons: string[];
+} {
+  const entries = Object.values(answers);
+  if (entries.length === 0) {
+    return { score: 0, outcome: 'incomplete', reasons: ['No answers captured'] };
+  }
+
+  let sum = 0;
+  for (const entry of entries) {
+    const quality = (entry?.answer_quality || '').toLowerCase();
+    if (quality === 'good') sum += 1.0;
+    else if (quality === 'partial') sum += 0.5;
+  }
+
+  const score = Math.round((sum / entries.length) * 100);
+  const reasons: string[] = [];
+  const hasSecurityFlags = securityFlags && (securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium');
+
+  let outcome: 'pass' | 'fail' | 'needs_review' | 'incomplete';
+  if (hasSecurityFlags) {
+    outcome = 'needs_review';
+    reasons.push('Security flags detected - potential prompt manipulation, requires human review');
+  } else if (score >= 80) {
+    outcome = 'pass';
+  } else if (score >= 60) {
+    outcome = 'needs_review';
+    reasons.push('Score in ambiguous range (60-79) - requires human review');
+  } else {
+    outcome = 'fail';
+    for (const entry of entries) {
+      const quality = (entry?.answer_quality || '').toLowerCase();
+      if (quality === 'poor' || quality === 'skipped') {
+        reasons.push(`${entry.question_text || 'Question'}: ${quality}`);
+      }
+    }
+  }
+
+  return { score, outcome, reasons };
+}
+
 Deno.serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -102,12 +144,11 @@ Deno.serve(async (req) => {
 
     console.log('Starting recovery of stuck screens...');
 
-    // Find screens stuck in 'in_progress' status for more than 5 minutes
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     
     const { data: stuckScreens, error: fetchError } = await supabase
       .from('screens')
-      .select('id, session_id, bulk_operation_id, organization_id')
+      .select('id, session_id, bulk_operation_id, organization_id, answers')
       .eq('status', 'in_progress')
       .not('session_id', 'is', null)
       .lt('started_at', fiveMinutesAgo);
@@ -130,33 +171,23 @@ Deno.serve(async (req) => {
     let recovered = 0;
     let failed = 0;
 
-    // Process each stuck screen
     for (const screen of stuckScreens) {
       try {
         console.log(`Fetching conversation data for session: ${screen.session_id}`);
 
-        // Fetch conversation data from ElevenLabs API
         const response = await fetch(
           `https://api.elevenlabs.io/v1/convai/conversations/${screen.session_id}`,
-          {
-            headers: {
-              'xi-api-key': elevenLabsApiKey,
-            },
-          }
+          { headers: { 'xi-api-key': elevenLabsApiKey } }
         );
 
         if (!response.ok) {
           if (response.status === 404) {
             console.error(`Conversation not found for session: ${screen.session_id}`);
-            // Mark as failed - conversation doesn't exist
-            await supabase
-              .from('screens')
-              .update({
-                status: 'failed',
-                completed_at: new Date().toISOString(),
-                ai_summary: 'Conversation data not found in ElevenLabs API',
-              })
-              .eq('id', screen.id);
+            await supabase.from('screens').update({
+              status: 'failed',
+              completed_at: new Date().toISOString(),
+              ai_summary: 'Conversation data not found in ElevenLabs API',
+            }).eq('id', screen.id);
 
             if (screen.bulk_operation_id) {
               await supabase.rpc('increment_bulk_operation_count', {
@@ -164,7 +195,6 @@ Deno.serve(async (req) => {
                 count_type: 'failed_count',
               });
             }
-
             failed++;
             continue;
           }
@@ -172,14 +202,31 @@ Deno.serve(async (req) => {
         }
 
         const conversationData = await response.json();
-        console.log(`Retrieved conversation data for session: ${screen.session_id}`);
-
-        // Extract data from conversation
         const transcript = conversationData.transcript || [];
         const analysis = conversationData.analysis || {};
         const metadata = conversationData.metadata || {};
 
-        // Normalize and calculate score from evaluation criteria
+        // === Call quality metrics (always set) ===
+        const conversationTurns = Array.isArray(transcript) ? transcript.length : 0;
+        const candidateMessages = Array.isArray(transcript)
+          ? transcript.filter((msg: any) => msg.role === 'user' || msg.speaker === 'candidate').length
+          : 0;
+        const candidateResponded = candidateMessages > 0;
+        let firstResponseTime: number | null = null;
+        if (Array.isArray(transcript) && transcript.length > 1) {
+          const firstCandidateMsg = transcript.find((msg: any) =>
+            msg.role === 'user' || msg.speaker === 'candidate'
+          );
+          if (firstCandidateMsg?.time_in_call_secs !== undefined) {
+            firstResponseTime = Math.round(firstCandidateMsg.time_in_call_secs);
+          }
+        }
+        const callConnected = conversationTurns >= 1;
+
+        // === Security detection ===
+        const securityFlags = detectSecurityIssues(transcript);
+
+        // === Normalize evaluation criteria ===
         const evalRaw = analysis.evaluation_criteria_results;
         let evaluationResults: any[] = [];
         if (Array.isArray(evalRaw)) {
@@ -193,115 +240,71 @@ Deno.serve(async (req) => {
             reason: (v as any)?.reason ?? (v as any)?.details ?? null,
           }));
         }
-        console.log('[RECOVER] evaluation_criteria_results shape:', typeof evalRaw, 'items:', evaluationResults.length);
 
-        const passedCriteria = evaluationResults.filter((r: any) => r.passed === true || r.result === 'pass').length;
-        const totalCriteria = evaluationResults.length;
-        const score = totalCriteria > 0 ? (passedCriteria / totalCriteria) * 100 : 0;
-
-        // Calculate call quality metrics FIRST (before using them)
-        const conversationTurns = transcript.length;
-
-        // Count candidate messages
-        const candidateMessages = transcript.filter((msg: any) => 
-          msg.role === 'user' || msg.speaker === 'candidate'
-        ).length;
-
-        const candidateResponded = candidateMessages > 0;
-
-        // Calculate time to first candidate response
-        let firstResponseTime: number | null = null;
-        if (transcript.length > 1) {
-          const firstCandidateMsg = transcript.find((msg: any) => 
-            msg.role === 'user' || msg.speaker === 'candidate'
-          );
-          if (firstCandidateMsg?.time_in_call_secs !== undefined) {
-            firstResponseTime = Math.round(firstCandidateMsg.time_in_call_secs);
-          }
-        }
-
-        // Call is connected if agent spoke (phone was answered)
-        const callConnected = conversationTurns >= 1;
-        
-        // Screening completed if we have evaluation data
-        const screeningCompleted = evaluationResults.length > 0;
-
-        console.log(`[RECOVER] Call quality for screen ${screen.id}:`, {
-          conversationTurns,
-          candidateResponded,
-          callConnected,
-          firstResponseTime
-        });
-
-        // Detect security issues in transcript
-        const securityFlags = detectSecurityIssues(transcript);
-        
-        // Build extracted data with security flags
-        const extractedData: any = {
-          evaluation_results: evaluationResults
-        };
-        if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
-          extractedData.security_flags = securityFlags;
-          console.log(`[RECOVER] Security flags detected for screen ${screen.id}:`, securityFlags);
-        }
-
-        // Determine outcome based on screening completion with Human Review support
+        // === Scoring logic ===
+        const existingAnswers = (screen.answers as Record<string, any>) || {};
+        let score: number;
         let outcome: 'pass' | 'fail' | 'incomplete' | 'needs_review';
-        const reasons: string[] = [];
-        
-        if (screeningCompleted) {
-          // Check for low confidence items that should trigger review
-          const lowConfidenceItems = evaluationResults.filter((r: any) => 
-            r.confidence !== undefined && r.confidence < 0.7
-          );
-          const hasLowConfidence = lowConfidenceItems.length > evaluationResults.length * 0.3;
-          
-          // Check for security flags
+        let reasons: string[] = [];
+        let extractedData: any = {};
+
+        if (evaluationResults.length > 0) {
+          // PATH A: Score from eval criteria
+          extractedData.evaluation_results = evaluationResults;
+          if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+            extractedData.security_flags = securityFlags;
+          }
+
+          const passedCriteria = evaluationResults.filter((r: any) => r.passed === true || r.result === 'pass').length;
+          score = evaluationResults.length > 0 ? (passedCriteria / evaluationResults.length) * 100 : 0;
+
           const hasSecurityFlags = securityFlags.risk_level === 'high' || securityFlags.risk_level === 'medium';
-          
-          // Three-tier outcome logic with security check:
-          // - Security flags: Needs human review
-          // - Score 80-100: Auto pass
-          // - Score 60-79: Needs human review (ambiguous zone)
-          // - Score 0-59: Auto fail
-          // - Low confidence on >30% of criteria: Needs human review
+          const lowConfidenceItems = evaluationResults.filter((r: any) => r.confidence !== undefined && r.confidence < 0.7);
+          const hasLowConfidence = lowConfidenceItems.length > evaluationResults.length * 0.3;
+
           if (hasSecurityFlags) {
             outcome = 'needs_review';
             reasons.push('Security flags detected - potential prompt manipulation, requires human review');
-            console.log(`[RECOVER] Security flags for screen ${screen.id} - flagged for human review`);
           } else if (hasLowConfidence) {
             outcome = 'needs_review';
             reasons.push('Low confidence on multiple evaluation criteria - requires human review');
-            console.log(`[RECOVER] Low confidence detected for screen ${screen.id} - flagged for human review`);
           } else if (score >= 80) {
             outcome = 'pass';
           } else if (score >= 60) {
             outcome = 'needs_review';
             reasons.push('Score in ambiguous range (60-79) - requires human review');
-            console.log(`[RECOVER] Ambiguous score for screen ${screen.id} - flagged for human review`);
           } else {
             outcome = 'fail';
-            // Extract reasons for failure
             reasons.push(...evaluationResults
               .filter((r: any) => r.passed === false || r.result === 'fail')
-              .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed')
-            );
+              .map((r: any) => r.reason || r.criteria || 'Unknown criteria failed'));
+          }
+        } else if (Object.keys(existingAnswers).length > 0) {
+          // PATH B: Fallback to answer_quality scoring
+          console.log(`[RECOVER] No eval criteria, falling back to answer_quality for screen ${screen.id}`);
+          const result = scoreFromAnswerQuality(existingAnswers, securityFlags);
+          score = result.score;
+          outcome = result.outcome;
+          reasons = result.reasons;
+          
+          if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+            extractedData.security_flags = securityFlags;
           }
         } else {
-          // No evaluation data - call connected but incomplete
+          // PATH C: No data at all
+          score = 0;
           outcome = 'incomplete';
-          reasons.push('Screening incomplete - candidate did not complete all questions');
+          reasons = ['Screening incomplete - no answers captured'];
         }
 
-        // Prepare update data
+        // Prepare update - don't overwrite answers if using PATH B
         const updateData: any = {
           status: 'completed',
           completed_at: new Date().toISOString(),
           transcript: transcript.length > 0 ? transcript : null,
           ai_summary: analysis.transcript_summary || 'No summary available',
-          answers: evaluationResults.length > 0 ? evaluationResults : null,
-          score: score,
-          outcome: outcome,
+          score,
+          outcome,
           reasons: reasons.length > 0 ? reasons : null,
           duration_seconds: metadata.duration_seconds || null,
           recording_url: metadata.recording_url || null,
@@ -309,14 +312,19 @@ Deno.serve(async (req) => {
           candidate_responded: candidateResponded,
           call_connected: callConnected,
           first_response_time_seconds: firstResponseTime,
-          extracted_data: extractedData,
         };
 
-        // Update the screen
+        // Only set answers if we have eval criteria results (PATH A)
+        if (evaluationResults.length > 0) {
+          updateData.answers = evaluationResults;
+        }
+        
+        if (Object.keys(extractedData).length > 0) {
+          updateData.extracted_data = extractedData;
+        }
+
         const { error: updateError } = await supabase
-          .from('screens')
-          .update(updateData)
-          .eq('id', screen.id);
+          .from('screens').update(updateData).eq('id', screen.id);
 
         if (updateError) {
           console.error(`Error updating screen ${screen.id}:`, updateError);
@@ -324,16 +332,15 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Update bulk operation count
         if (screen.bulk_operation_id) {
           const count_type = outcome === 'pass' ? 'completed_count' : 'failed_count';
           await supabase.rpc('increment_bulk_operation_count', {
             operation_id: screen.bulk_operation_id,
-            count_type: count_type,
+            count_type,
           });
         }
 
-        console.log(`Successfully recovered screen ${screen.id}`);
+        console.log(`Successfully recovered screen ${screen.id} - score: ${score}, outcome: ${outcome}`);
         recovered++;
 
       } catch (error) {
@@ -345,12 +352,7 @@ Deno.serve(async (req) => {
     console.log(`Recovery complete: ${recovered} recovered, ${failed} failed`);
 
     return new Response(
-      JSON.stringify({
-        message: 'Recovery complete',
-        total: stuckScreens.length,
-        recovered,
-        failed,
-      }),
+      JSON.stringify({ message: 'Recovery complete', total: stuckScreens.length, recovered, failed }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
