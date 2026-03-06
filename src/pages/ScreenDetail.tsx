@@ -193,18 +193,27 @@ export default function ScreenDetail() {
       const { data, error } = await supabase.functions.invoke('refetch-screen-data', {
         body: { screen_id: id }
       });
-      if (error) throw error;
+      if (error) {
+        const errMsg = typeof error === 'object' && error.message ? error.message : String(error);
+        if (errMsg.includes('404') || errMsg.includes('not found') || errMsg.includes('not_found')) {
+          toast({ title: "Conversation Not Found", description: "This conversation no longer exists in ElevenLabs. It may have been deleted or expired.", variant: "destructive" });
+        } else {
+          toast({ title: "Refetch Failed", description: errMsg, variant: "destructive" });
+        }
+        return;
+      }
       toast({
         title: "Data Recovered",
         description: `Recovered ${data.answers_recovered} answers, score: ${data.score}, outcome: ${data.outcome}`,
       });
       await fetchScreenData();
     } catch (error: any) {
-      toast({
-        title: "Refetch Failed",
-        description: error.message || "Failed to refetch data from ElevenLabs",
-        variant: "destructive"
-      });
+      const msg = error?.message || '';
+      if (msg.includes('404') || msg.includes('not found') || msg.includes('not_found')) {
+        toast({ title: "Conversation Not Found", description: "This conversation no longer exists in ElevenLabs. It may have been deleted or expired.", variant: "destructive" });
+      } else {
+        toast({ title: "Refetch Failed", description: msg || "Failed to refetch data from ElevenLabs", variant: "destructive" });
+      }
     } finally {
       setIsRefetching(false);
     }
@@ -410,6 +419,10 @@ export default function ScreenDetail() {
                     );
                     if (!resp.ok) {
                       const errBody = await resp.text();
+                      if (resp.status === 502 && errBody.includes('404')) {
+                        toast({ title: "Recording Not Available", description: "No audio recording found for this conversation in ElevenLabs. Audio recording may not have been enabled.", variant: "destructive" });
+                        return;
+                      }
                       throw new Error(errBody || `HTTP ${resp.status}`);
                     }
                     const blob = await resp.blob();
@@ -420,7 +433,12 @@ export default function ScreenDetail() {
                     a.click();
                     URL.revokeObjectURL(url);
                   } catch (err: any) {
-                    toast({ title: "Download Failed", description: err.message || "Could not fetch recording", variant: "destructive" });
+                    const msg = err?.message || '';
+                    if (msg.includes('404') || msg.includes('not found')) {
+                      toast({ title: "Recording Not Available", description: "No audio recording found for this conversation in ElevenLabs.", variant: "destructive" });
+                    } else {
+                      toast({ title: "Download Failed", description: msg || "Could not fetch recording", variant: "destructive" });
+                    }
                   }
                 }}
               >
