@@ -680,10 +680,13 @@ serve(async (req) => {
         }
 
         // Reassign phone number to ensure it stays bound to this agent
-        const twilioConfig = (updateOrganization as any)?.twilio_config;
-        const agentPhoneNumberId = twilioConfig?.agent_phone_number_id;
-        if (agentPhoneNumberId) {
-          await reassignPhoneNumber(elevenLabsApiKey, agentPhoneNumberId, agentId);
+        if (updates.roleId) {
+          const { data: phoneOrg } = await supabase
+            .from('organizations').select('twilio_config').eq('id', DEMO_ORG_ID).single();
+          const agentPhoneNumberId = (phoneOrg?.twilio_config as any)?.agent_phone_number_id;
+          if (agentPhoneNumberId) {
+            await reassignPhoneNumber(elevenLabsApiKey, agentPhoneNumberId, agentId);
+          }
         }
 
         return new Response(JSON.stringify({
