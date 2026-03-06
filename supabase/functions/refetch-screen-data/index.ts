@@ -272,15 +272,19 @@ Deno.serve(async (req) => {
       console.log(`[REFETCH] Extracted ${Object.keys(transcriptAnswers).length} answers from transcript`);
     }
 
-    // === Determine answers to use (priority: existing > tool > transcript) ===
+    // === Determine answers to use ===
+    // For refetch, prefer the source with the MOST answers (toolAnswers from fresh API data wins over stale DB data)
     const existingAnswers = (screen.answers as Record<string, any>) || {};
-    const answers = Object.keys(existingAnswers).length > 0 
-      ? existingAnswers 
-      : Object.keys(toolAnswers).length > 0 
-        ? toolAnswers 
-        : Object.keys(transcriptAnswers).length > 0
-          ? transcriptAnswers
-          : {};
+    const candidateSources = [
+      { name: 'tool_results', data: toolAnswers },
+      { name: 'existing_db', data: existingAnswers },
+      { name: 'transcript_fuzzy', data: transcriptAnswers },
+    ];
+    const best = candidateSources.reduce((a, b) => 
+      Object.keys(b.data).length > Object.keys(a.data).length ? b : a
+    );
+    const answers = best.data;
+    console.log(`[REFETCH] Using answer source: ${best.name} (${Object.keys(answers).length} answers)`);
 
     // === Call quality metrics ===
     const conversationTurns = Array.isArray(transcript) ? transcript.length : 0;
