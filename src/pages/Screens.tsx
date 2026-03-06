@@ -236,7 +236,7 @@ export default function Screens() {
               Monitor and manage all candidate screening calls
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button 
               variant="outline" 
               onClick={() => fetchScreens(false)}
@@ -381,15 +381,15 @@ export default function Screens() {
               {filteredScreens.map((screen) => (
                 <TableRow key={screen.id} className="hover:bg-card-hover">
                   <TableCell>
-                    <div>
-                      <p className="font-medium">{screen.candidate?.name || 'Unknown'}</p>
-                      <p className="text-sm text-muted-foreground">{screen.candidate?.phone || 'No phone'}</p>
+                    <div className="max-w-[200px]">
+                      <p className="font-medium truncate">{screen.candidate?.name || 'Unknown'}</p>
+                      <p className="text-sm text-muted-foreground truncate">{screen.candidate?.phone || 'No phone'}</p>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div>
-                      <p className="font-medium">{screen.role?.title || 'Unknown Role'}</p>
-                      <p className="text-sm text-muted-foreground">{screen.role?.location || 'No location'}</p>
+                    <div className="max-w-[200px]">
+                      <p className="font-medium truncate">{screen.role?.title || 'Unknown Role'}</p>
+                      <p className="text-sm text-muted-foreground truncate">{screen.role?.location || 'No location'}</p>
                     </div>
                   </TableCell>
                   <TableCell>

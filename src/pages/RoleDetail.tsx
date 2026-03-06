@@ -364,8 +364,8 @@ export default function RoleDetail() {
               </Button>
             </Link>
             <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold tracking-tight">
+              <div className="flex items-center gap-3 min-w-0">
+                <h1 className="text-3xl font-bold tracking-tight truncate min-w-0">
                   {isNewRole ? 'Create New Role' : title || 'Untitled Role'}
                 </h1>
                 {!isNewRole && (
@@ -393,7 +393,7 @@ export default function RoleDetail() {
               )}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap shrink-0">
             {!isNewRole && (
               <Button variant="outline">
                 <TestTube className="w-4 h-4 mr-2" />
