@@ -2,23 +2,23 @@
 
 ## Problem
 
-In `BulkScreeningModal.tsx` line 71, the `activeStatuses` array includes `'completed'`:
+Two places filter for "active" screens — the client-side `BulkScreeningModal.tsx` (already fixed) and the server-side `demo-api-bulk-screenings/index.ts` (line 376). The server still includes `'completed'` in its active statuses:
 
 ```typescript
-const activeStatuses = ['pending', 'in_progress', 'scheduled', 'completed'];
+.in('status', ['pending', 'in_progress', 'scheduled', 'completed']);
 ```
 
-A `completed` screen means the call is done — it's not active. Including it causes candidates like Priyank Garg (who has a completed screen) to show the "Active screen" badge incorrectly.
+This causes Priyank to be skipped server-side with the log message "Skipping 1 candidates with existing active screens", even though his screen is finished.
 
 ## Fix
 
-**File: `src/components/BulkScreeningModal.tsx`** (line 71)
+**File: `supabase/functions/demo-api-bulk-screenings/index.ts`** (line 376)
 
-Remove `'completed'` from the active statuses array:
+Remove `'completed'` from the status filter:
 
 ```typescript
-const activeStatuses = ['pending', 'in_progress', 'scheduled'];
+.in('status', ['pending', 'in_progress', 'scheduled']);
 ```
 
-This way only screens that are truly in-flight will trigger the warning badge. Completed, failed, and other terminal states will be ignored.
+This single-line change aligns the server with the client fix, allowing candidates with only completed screens to be re-screened.
 
