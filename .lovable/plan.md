@@ -1,66 +1,32 @@
 
 
-## Fix text overflow across the frontend
+## Yes — We Can Re-fetch from ElevenLabs API
 
-After reviewing all pages, here are the overflow issues found and the fixes:
+The `recover-stuck-screens` function already calls `GET https://api.elevenlabs.io/v1/convai/conversations/{session_id}` to fetch transcript, analysis, and metadata. The problem is it only targets screens with `status = 'in_progress'`. Screen `33d2b434` is already `completed` (with null answers).
 
-### 1. `src/pages/ScreenDetail.tsx`
+## Plan: Create a `refetch-screen-data` Edge Function
 
-**Conversation ID overflow (lines 352-363)**
-The `<code>` element with `max-w-[200px] truncate` doesn't work because its flex parent lacks `min-w-0`. The outer row also needs `min-w-0`.
+A small edge function that takes a `screen_id`, fetches the conversation data from ElevenLabs, and re-runs the updated scoring logic (which now preserves save-answer data).
 
-Fix:
-- Add `min-w-0` to the outer `div.flex` (line 352)
-- Add `min-w-0` to the inner `div.flex` (line 354)  
-- Add `block` to the `<code>` element so `truncate` works
+### New file: `supabase/functions/refetch-screen-data/index.ts`
 
-**Candidate contact info overflow (lines 315-318)**
-Long emails/phones can overflow. Fix: add `truncate min-w-0` to the `<span>` elements and `min-w-0` to parent flex containers.
+1. Accept `{ screen_id }` in the request body
+2. Fetch the screen record (including `session_id`, `answers`, `role_id`)
+3. Call ElevenLabs API: `GET /v1/convai/conversations/{session_id}`
+4. Run the same processing as the updated webhook:
+   - Extract transcript, duration, recording_url, ai_summary
+   - Check for evaluation_criteria_results
+   - If no eval criteria, check existing `answers` from DB — but since answers are NULL for this screen, also check the ElevenLabs conversation's `collected_tool_results` (the save-answer tool calls are logged there by ElevenLabs)
+   - Score using `answer_quality` and set outcome
+   - Update the screen record
 
-**Candidate name/externalId (lines 312-313)**
-Add `truncate` to the name and externalId paragraphs.
+### Edit: `src/pages/ScreenDetail.tsx`
 
-**Date/time lines (lines 374-379)**
-Long formatted dates can overflow on narrow cards. Wrap the text spans with `truncate` and ensure flex containers have `min-w-0`.
+- Add a "Re-fetch from ElevenLabs" button (visible when `session_id` exists)
+- Calls `supabase.functions.invoke('refetch-screen-data', { body: { screen_id } })`
+- Refreshes screen data on success
 
-**Transcript chat bubbles (lines 670-674)**
-Add `break-words` (`className="text-sm break-words"`) to transcript text to prevent long unbroken strings from overflowing.
+### Key insight: ElevenLabs stores tool call results
 
-**Evaluation criteria question text (line 731)**
-Already has `flex-1` but add `break-words` for safety.
-
-**AI Summary (line 704)**
-Already has `whitespace-pre-wrap` — add `break-words` for safety.
-
-### 2. `src/pages/Screens.tsx`
-
-**Table cells (lines 383-392)**
-Candidate name/phone and role title/location in table cells can overflow on narrow screens. Add `max-w-[200px] truncate` to the inner `<p>` elements.
-
-**Header buttons (lines 239-277)**
-On narrow screens, the header buttons row can overflow. Wrap with `flex-wrap`.
-
-### 3. `src/components/layout/AppLayout.tsx`
-
-**Nav bar (line 96)**
-On narrow viewports, nav items can overflow. Add `overflow-x-auto` to the nav container.
-
-### 4. `src/pages/RoleDetail.tsx`
-
-**Header title (line 368-369)**
-Long role titles can overflow. Add `truncate` and `min-w-0` to the title container.
-
-**Header buttons (lines 396-415)**
-Add `flex-wrap` and `shrink-0` to prevent button overflow.
-
-### Summary of changes
-
-| File | Issue | Fix |
-|------|-------|-----|
-| `ScreenDetail.tsx` | Conversation ID, contact info, dates overflow | Add `min-w-0`, `truncate`, `break-words` to flex children |
-| `ScreenDetail.tsx` | Transcript text overflow | Add `break-words` |
-| `Screens.tsx` | Table cell text overflow | Add `truncate max-w-[200px]` to cell text |
-| `Screens.tsx` | Header buttons overflow | Add `flex-wrap` |
-| `AppLayout.tsx` | Nav overflow on narrow screens | Add `overflow-x-auto` |
-| `RoleDetail.tsx` | Long title overflow | Add `truncate min-w-0` |
+The ElevenLabs conversation GET endpoint returns `collected_tool_results` which contains all the save-answer tool invocations with the structured answer data. Even though the DB answers were overwritten to NULL, the original data lives in ElevenLabs' API response. The refetch function will extract answers from there.
 

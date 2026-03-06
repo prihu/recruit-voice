@@ -309,13 +309,13 @@ export default function ScreenDetail() {
             <CardHeader><CardTitle>Candidate</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <div>
-                <p className="font-semibold text-lg">{candidate.name}</p>
-                <p className="text-sm text-muted-foreground">{candidate.externalId}</p>
+                <p className="font-semibold text-lg truncate">{candidate.name}</p>
+                <p className="text-sm text-muted-foreground truncate">{candidate.externalId}</p>
               </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-muted-foreground" /><span>{candidate.phone}</span></div>
-                <div className="flex items-center gap-2"><Mail className="w-4 h-4 text-muted-foreground" /><span>{candidate.email}</span></div>
-                <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-muted-foreground" /><span>{candidate.locationPref}</span></div>
+              <div className="space-y-2 text-sm min-w-0">
+                <div className="flex items-center gap-2 min-w-0"><Phone className="w-4 h-4 text-muted-foreground shrink-0" /><span className="truncate">{candidate.phone}</span></div>
+                <div className="flex items-center gap-2 min-w-0"><Mail className="w-4 h-4 text-muted-foreground shrink-0" /><span className="truncate">{candidate.email}</span></div>
+                <div className="flex items-center gap-2 min-w-0"><MapPin className="w-4 h-4 text-muted-foreground shrink-0" /><span className="truncate">{candidate.locationPref}</span></div>
               </div>
               <Separator />
               <div className="flex flex-wrap gap-1">
@@ -349,10 +349,10 @@ export default function ScreenDetail() {
               <div className="space-y-2">
                 <span className="text-sm font-medium text-muted-foreground">Call Details</span>
                 {screen.session_id && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Conversation ID</span>
-                    <div className="flex items-center gap-2">
-                      <code className="bg-muted px-2 py-1 rounded text-xs font-mono max-w-[200px] truncate">{screen.session_id}</code>
+                  <div className="flex items-center justify-between text-sm min-w-0">
+                    <span className="text-muted-foreground shrink-0">Conversation ID</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <code className="bg-muted px-2 py-1 rounded text-xs font-mono max-w-[200px] truncate block">{screen.session_id}</code>
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
                         navigator.clipboard.writeText(screen.session_id || '');
                         toast({ title: "Copied", description: "Conversation ID copied to clipboard" });
@@ -371,12 +371,12 @@ export default function ScreenDetail() {
               </div>
               
               <Separator />
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /><span>Created: {safeFormat(screen.createdAt, 'PPp')}</span></div>
+              <div className="space-y-2 text-sm min-w-0">
+                <div className="flex items-center gap-2 min-w-0"><Calendar className="w-4 h-4 text-muted-foreground shrink-0" /><span className="truncate">Created: {safeFormat(screen.createdAt, 'PPp')}</span></div>
                 {screen.completedAt && (
-                  <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-muted-foreground" /><span>Call Ended: {safeFormat(screen.completedAt, 'PPp')}</span></div>
+                  <div className="flex items-center gap-2 min-w-0"><Phone className="w-4 h-4 text-muted-foreground shrink-0" /><span className="truncate">Call Ended: {safeFormat(screen.completedAt, 'PPp')}</span></div>
                 )}
-                <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-muted-foreground" /><span>Last Updated: {safeFormatDistance(screen.updatedAt, { addSuffix: true })}</span></div>
+                <div className="flex items-center gap-2 min-w-0"><Clock className="w-4 h-4 text-muted-foreground shrink-0" /><span className="truncate">Last Updated: {safeFormatDistance(screen.updatedAt, { addSuffix: true })}</span></div>
               </div>
               {screen.reasons && screen.reasons.length > 0 && (
                 <>
@@ -670,7 +670,7 @@ export default function ScreenDetail() {
                             <div className={`inline-block p-3 rounded-lg ${
                               isAgent ? 'bg-muted text-foreground' : 'bg-primary text-primary-foreground'
                             }`}>
-                              <p className="text-sm">{entry.text}</p>
+                              <p className="text-sm break-words">{entry.text}</p>
                             </div>
                             {timeDisplay && (
                               <p className="text-xs text-muted-foreground mt-1">{timeDisplay}</p>
@@ -701,7 +701,7 @@ export default function ScreenDetail() {
                 </CardHeader>
                 <CardContent>
                   <div className="p-4 bg-muted rounded-lg">
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{screen.ai_summary}</p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{screen.ai_summary}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -728,7 +728,7 @@ export default function ScreenDetail() {
                     return (
                       <div key={key} className="p-3 border rounded-lg">
                         <div className="flex items-start justify-between mb-2">
-                          <p className="font-medium text-sm flex-1">
+                          <p className="font-medium text-sm flex-1 break-words">
                             {question?.text || answer?.question_text || key}
                           </p>
                           {isSaveAnswerFormat ? (

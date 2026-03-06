@@ -93,7 +93,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             <span className="font-semibold text-lg">AI Screener</span>
           </Link>
 
-          <nav className="flex items-center gap-1 ml-8">
+          <nav className="flex items-center gap-1 ml-8 overflow-x-auto">
             {navItems.map((item) => (
               <Link
                 key={item.href}
