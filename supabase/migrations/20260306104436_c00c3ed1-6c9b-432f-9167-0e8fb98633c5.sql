@@ -1,0 +1,2 @@
+ALTER TABLE public.screens DROP CONSTRAINT screens_outcome_check;
+ALTER TABLE public.screens ADD CONSTRAINT screens_outcome_check CHECK (outcome = ANY (ARRAY['pass'::text, 'fail'::text, 'incomplete'::text, 'needs_review'::text]));

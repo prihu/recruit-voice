@@ -113,14 +113,14 @@ Deno.serve(async (req) => {
 
     console.log(`[REFETCH] Got transcript: ${transcript.length} turns, analysis keys: ${Object.keys(analysis)}`);
 
-    // === Extract answers from collected_tool_results (save-answer tool calls) ===
+    // === Extract answers from multiple sources ===
     let toolAnswers: Record<string, any> = {};
-    const collectedResults = conversationData.collected_tool_results || [];
     
+    // Source 1: collected_tool_results (top-level)
+    const collectedResults = conversationData.collected_tool_results || [];
     console.log(`[REFETCH] collected_tool_results count: ${collectedResults.length}`);
     
     for (const toolResult of collectedResults) {
-      // Each tool result has the tool name and the parameters that were passed
       const toolName = toolResult.tool_name || toolResult.name || '';
       const params = toolResult.parameters || toolResult.params || toolResult.input || {};
       
@@ -130,27 +130,125 @@ Deno.serve(async (req) => {
         const answerQuality = params.answer_quality || 'partial';
         
         if (questionText) {
-          // Use slugified key matching the save-answer tool format
           const key = `q_${questionText.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').substring(0, 60)}`;
           toolAnswers[key] = {
             question_text: questionText,
             candidate_answer: answerText,
             answer_quality: answerQuality,
-            source: 'refetched_from_elevenlabs'
+            source: 'collected_tool_results'
           };
         }
       }
     }
 
-    console.log(`[REFETCH] Extracted ${Object.keys(toolAnswers).length} answers from tool results`);
+    // Source 2: data_collection_results (in analysis)
+    const dataCollectionResults = analysis.data_collection_results || {};
+    const dataCollectionResultsList = analysis.data_collection_results_list || [];
+    console.log(`[REFETCH] data_collection_results keys: ${Object.keys(dataCollectionResults).length}, list: ${dataCollectionResultsList.length}`);
+    console.log(`[REFETCH] data_collection_results:`, JSON.stringify(dataCollectionResults).substring(0, 500));
+    console.log(`[REFETCH] data_collection_results_list:`, JSON.stringify(dataCollectionResultsList).substring(0, 500));
+    
+    // data_collection_results is typically { "field_name": { value: "...", ... } }
+    if (Object.keys(toolAnswers).length === 0) {
+      // Try extracting from data_collection_results object
+      if (typeof dataCollectionResults === 'object' && Object.keys(dataCollectionResults).length > 0) {
+        for (const [fieldName, fieldData] of Object.entries(dataCollectionResults)) {
+          const data = fieldData as any;
+          const value = typeof data === 'string' ? data : (data?.value || data?.answer || JSON.stringify(data));
+          const key = `q_${fieldName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').substring(0, 60)}`;
+          toolAnswers[key] = {
+            question_text: fieldName,
+            candidate_answer: value,
+            answer_quality: 'good', // data_collection implies successful capture
+            source: 'data_collection_results'
+          };
+        }
+      }
+      
+      // Try extracting from data_collection_results_list array
+      if (Object.keys(toolAnswers).length === 0 && Array.isArray(dataCollectionResultsList) && dataCollectionResultsList.length > 0) {
+        for (const item of dataCollectionResultsList) {
+          const name = item.data_collection_id || item.name || item.field || '';
+          const value = item.value || item.result || item.answer || '';
+          if (name) {
+            const key = `q_${name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').substring(0, 60)}`;
+            toolAnswers[key] = {
+              question_text: name,
+              candidate_answer: value,
+              answer_quality: 'good',
+              source: 'data_collection_results_list'
+            };
+          }
+        }
+      }
+    }
+    
+    // Also log evaluation criteria for debugging
+    console.log(`[REFETCH] evaluation_criteria_results:`, JSON.stringify(analysis.evaluation_criteria_results || {}).substring(0, 500));
+    console.log(`[REFETCH] evaluation_criteria_results_list:`, JSON.stringify(analysis.evaluation_criteria_results_list || []).substring(0, 500));
 
-    // === Determine answers to use ===
+    console.log(`[REFETCH] Extracted ${Object.keys(toolAnswers).length} answers from all sources`);
+
+    // === Source 3: Extract from transcript by matching role questions ===
+    let transcriptAnswers: Record<string, any> = {};
+    if (Object.keys(toolAnswers).length === 0 && Array.isArray(transcript) && transcript.length > 0) {
+      // Fetch role questions
+      const { data: roleData } = await supabase
+        .from('roles').select('questions').eq('id', screen.role_id).single();
+      
+      const questions = Array.isArray(roleData?.questions) ? roleData.questions : [];
+      console.log(`[REFETCH] Attempting transcript extraction with ${questions.length} role questions`);
+      
+      for (const question of questions) {
+        const qText = (question.text || '').toLowerCase();
+        if (!qText || qText.length < 10) continue;
+        
+        // Find agent message containing this question (fuzzy: first 25 chars)
+        const searchStr = qText.substring(0, 25);
+        
+        for (let i = 0; i < transcript.length; i++) {
+          const msg = transcript[i];
+          const msgRole = msg.role || msg.speaker || '';
+          const msgText = (msg.message || msg.text || '').toLowerCase();
+          
+          if ((msgRole === 'agent' || msgRole === 'ai') && msgText.includes(searchStr)) {
+            // Found the question - look for next candidate response
+            for (let j = i + 1; j < transcript.length; j++) {
+              const resp = transcript[j];
+              const respRole = resp.role || resp.speaker || '';
+              if (respRole === 'user' || respRole === 'candidate') {
+                const answerText = resp.message || resp.text || '';
+                const wordCount = answerText.trim().split(/\s+/).length;
+                const quality = wordCount > 10 ? 'good' : wordCount >= 3 ? 'partial' : 'poor';
+                
+                const key = `q_${qText.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').substring(0, 60)}`;
+                transcriptAnswers[key] = {
+                  question_text: question.text,
+                  candidate_answer: answerText,
+                  answer_quality: quality,
+                  source: 'transcript_extraction'
+                };
+                break;
+              }
+              // If next agent message appears before candidate response, skip
+              if ((resp.role === 'agent' || resp.speaker === 'ai')) break;
+            }
+            break; // Found match for this question, move to next
+          }
+        }
+      }
+      console.log(`[REFETCH] Extracted ${Object.keys(transcriptAnswers).length} answers from transcript`);
+    }
+
+    // === Determine answers to use (priority: existing > tool > transcript) ===
     const existingAnswers = (screen.answers as Record<string, any>) || {};
     const answers = Object.keys(existingAnswers).length > 0 
       ? existingAnswers 
       : Object.keys(toolAnswers).length > 0 
         ? toolAnswers 
-        : {};
+        : Object.keys(transcriptAnswers).length > 0
+          ? transcriptAnswers
+          : {};
 
     // === Call quality metrics ===
     const conversationTurns = Array.isArray(transcript) ? transcript.length : 0;
@@ -171,8 +269,18 @@ Deno.serve(async (req) => {
 
     // === Scoring ===
     const evalRaw = analysis.evaluation_criteria_results;
+    const evalListRaw = analysis.evaluation_criteria_results_list;
     let evalArray: any[] = [];
-    if (Array.isArray(evalRaw)) {
+    
+    // Try the list format first (newer API)
+    if (Array.isArray(evalListRaw) && evalListRaw.length > 0) {
+      evalArray = evalListRaw.map((item: any) => ({
+        criteria: item.criteria || item.name || item.evaluation_criteria_id || '',
+        result: item.result || (item.passed ? 'pass' : 'fail'),
+        passed: item.result === 'pass' || item.passed === true,
+        reason: item.rationale || item.reason || item.details || null,
+      }));
+    } else if (Array.isArray(evalRaw)) {
       evalArray = evalRaw;
     } else if (evalRaw && typeof evalRaw === 'object') {
       evalArray = Object.entries(evalRaw).map(([criteria, v]: [string, any]) => ({
@@ -183,6 +291,8 @@ Deno.serve(async (req) => {
         reason: (v as any)?.reason ?? (v as any)?.details ?? null,
       }));
     }
+    
+    console.log(`[REFETCH] evalArray length: ${evalArray.length}`, JSON.stringify(evalArray).substring(0, 500));
 
     let score: number;
     let outcome: string;
