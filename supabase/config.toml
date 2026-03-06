@@ -100,3 +100,6 @@ verify_jwt = false
 
 [functions.elevenlabs-tool-save-answer]
 verify_jwt = false
+
+[functions.refetch-screen-data]
+verify_jwt = true

@@ -10,10 +10,11 @@ import {
   ArrowLeft, Phone, Mail, MapPin, Calendar, Clock,
   CheckCircle, XCircle, AlertCircle, MessageSquare, Mic,
   Download, ThumbsUp, ThumbsDown, Send, FileJson, FileSpreadsheet,
-  Loader2, PhoneCall, Activity
+  Loader2, PhoneCall, Activity, RefreshCw
 } from 'lucide-react';
 import { VoiceScreening } from '@/components/VoiceScreening';
 import { useDemoAPI } from '@/hooks/useDemoAPI';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { Screen, Role, Candidate, CallWindow, TranscriptEntry, ScreeningQuestion, FAQEntry, ScoringRule } from '@/types';
 import { safeFormat, safeFormatDistance, parseToDate } from '@/lib/date';
@@ -55,6 +56,7 @@ export default function ScreenDetail() {
   const [role, setRole] = useState<Role | null>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefetching, setIsRefetching] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -181,6 +183,30 @@ export default function ScreenDetail() {
       title: "Screening Complete",
       description: "The voice screening has been completed successfully",
     });
+  };
+
+  const handleRefetchFromElevenLabs = async () => {
+    if (!id) return;
+    setIsRefetching(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('refetch-screen-data', {
+        body: { screen_id: id }
+      });
+      if (error) throw error;
+      toast({
+        title: "Data Recovered",
+        description: `Recovered ${data.answers_recovered} answers, score: ${data.score}, outcome: ${data.outcome}`,
+      });
+      await fetchScreenData();
+    } catch (error: any) {
+      toast({
+        title: "Refetch Failed",
+        description: error.message || "Failed to refetch data from ElevenLabs",
+        variant: "destructive"
+      });
+    } finally {
+      setIsRefetching(false);
+    }
   };
 
   if (isLoading) {
@@ -376,6 +402,17 @@ export default function ScreenDetail() {
                 <Download className="w-4 h-4 mr-2" />
                 Download Recording
               </Button>
+              {screen.session_id && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={isRefetching}
+                  onClick={handleRefetchFromElevenLabs}
+                >
+                  {isRefetching ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                  Re-fetch from ElevenLabs
+                </Button>
+              )}
             </CardContent>
           </Card>
 
