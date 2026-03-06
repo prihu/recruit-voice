@@ -427,9 +427,13 @@ export default function ScreenDetail() {
                       }
                     );
                     if (!resp.ok) {
+                      if (resp.status === 404) {
+                        toast({ title: "Recording Not Available", description: "No audio recording found for this conversation. It may not have been enabled or has expired.", variant: "destructive" });
+                        return;
+                      }
                       const errBody = await resp.text();
                       if (resp.status === 502 && errBody.includes('404')) {
-                        toast({ title: "Recording Not Available", description: "No audio recording found for this conversation in ElevenLabs. Audio recording may not have been enabled.", variant: "destructive" });
+                        toast({ title: "Recording Not Available", description: "No audio recording found for this conversation. It may not have been enabled or has expired.", variant: "destructive" });
                         return;
                       }
                       throw new Error(errBody || `HTTP ${resp.status}`);
