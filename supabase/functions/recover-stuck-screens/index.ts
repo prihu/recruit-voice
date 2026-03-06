@@ -228,8 +228,18 @@ Deno.serve(async (req) => {
 
         // === Normalize evaluation criteria ===
         const evalRaw = analysis.evaluation_criteria_results;
+        const evalListRaw = analysis.evaluation_criteria_results_list;
         let evaluationResults: any[] = [];
-        if (Array.isArray(evalRaw)) {
+        
+        // Try the list format first (newer API)
+        if (Array.isArray(evalListRaw) && evalListRaw.length > 0) {
+          evaluationResults = evalListRaw.map((item: any) => ({
+            criteria: item.criteria || item.name || item.evaluation_criteria_id || '',
+            result: item.result || (item.passed ? 'pass' : 'fail'),
+            passed: item.result === 'pass' || item.passed === true,
+            reason: item.rationale || item.reason || item.details || null,
+          }));
+        } else if (Array.isArray(evalRaw)) {
           evaluationResults = evalRaw;
         } else if (evalRaw && typeof evalRaw === 'object') {
           evaluationResults = Object.entries(evalRaw).map(([criteria, v]: [string, any]) => ({
@@ -291,10 +301,58 @@ Deno.serve(async (req) => {
             extractedData.security_flags = securityFlags;
           }
         } else {
-          // PATH C: No data at all
-          score = 0;
-          outcome = 'incomplete';
-          reasons = ['Screening incomplete - no answers captured'];
+          // PATH B.5: Try extracting from transcript tool_calls
+          const toolAnswers: Record<string, any> = {};
+          if (Array.isArray(transcript)) {
+            for (const turn of transcript) {
+              for (const call of (turn.tool_calls || [])) {
+                const toolName = call.tool_name || '';
+                if (toolName.includes('save') && toolName.includes('answer')) {
+                  try {
+                    const bodyStr = call.tool_details?.body || call.params_as_json || '';
+                    const params = typeof bodyStr === 'string' ? JSON.parse(bodyStr) : bodyStr;
+                    const questionText = params.question_text || '';
+                    if (questionText) {
+                      const key = `q_${questionText.toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '_')
+                        .replace(/^_|_$/g, '')
+                        .substring(0, 60)}`;
+                      toolAnswers[key] = {
+                        question_text: questionText,
+                        candidate_answer: params.candidate_answer || '',
+                        answer_quality: params.answer_quality || 'partial',
+                        question_index: params.question_index,
+                        source: 'recover_transcript_tool_calls',
+                      };
+                    }
+                  } catch (e) { /* skip unparseable */ }
+                }
+              }
+            }
+          }
+
+          if (Object.keys(toolAnswers).length > 0) {
+            // Score from recovered tool call data
+            console.log(`[RECOVER] Recovered ${Object.keys(toolAnswers).length} answers from transcript tool_calls for screen ${screen.id}`);
+            const result = scoreFromAnswerQuality(toolAnswers, securityFlags);
+            score = result.score;
+            outcome = result.outcome;
+            reasons = result.reasons;
+
+            // Store recovered answers in updateData
+            updateData.answers = toolAnswers;
+            updateData.questions_answered = Object.keys(toolAnswers).length;
+            updateData.candidate_responded = true;
+
+            if (securityFlags.injection_detected || securityFlags.manipulation_detected) {
+              extractedData.security_flags = securityFlags;
+            }
+          } else {
+            // PATH C: No data at all
+            score = 0;
+            outcome = 'incomplete';
+            reasons = ['Screening incomplete - no answers captured'];
+          }
         }
 
         // Prepare update - don't overwrite answers if using PATH B
