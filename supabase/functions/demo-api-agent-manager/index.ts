@@ -679,6 +679,13 @@ serve(async (req) => {
           }).eq('id', updates.roleId).eq('organization_id', DEMO_ORG_ID);
         }
 
+        // Reassign phone number to ensure it stays bound to this agent
+        const twilioConfig = (updateOrganization as any)?.twilio_config;
+        const agentPhoneNumberId = twilioConfig?.agent_phone_number_id;
+        if (agentPhoneNumberId) {
+          await reassignPhoneNumber(elevenLabsApiKey, agentPhoneNumberId, agentId);
+        }
+
         return new Response(JSON.stringify({
           success: true,
           agentId: updatedAgent.agent_id,
