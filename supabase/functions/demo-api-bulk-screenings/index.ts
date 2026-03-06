@@ -373,7 +373,7 @@ serve(async (req) => {
         .select('candidate_id')
         .eq('role_id', roleId)
         .in('candidate_id', candidateIds)
-        .in('status', ['pending', 'in_progress', 'scheduled', 'completed']);
+        .in('status', ['pending', 'in_progress', 'scheduled']);
 
       const existingCandidateIds = new Set(
         (existingScreens || []).map((s: any) => s.candidate_id)
