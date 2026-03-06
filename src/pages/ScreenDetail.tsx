@@ -394,11 +394,25 @@ export default function ScreenDetail() {
                   if (!screen.session_id) return;
                   try {
                     toast({ title: "Downloading...", description: "Fetching recording from ElevenLabs" });
-                    const { data, error } = await supabase.functions.invoke('get-conversation-audio', {
-                      body: { conversation_id: screen.session_id }
-                    });
-                    if (error) throw error;
-                    const blob = new Blob([data], { type: 'audio/mpeg' });
+                    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+                    const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+                    const resp = await fetch(
+                      `https://${projectId}.supabase.co/functions/v1/get-conversation-audio`,
+                      {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${anonKey}`,
+                          'apikey': anonKey,
+                        },
+                        body: JSON.stringify({ conversation_id: screen.session_id }),
+                      }
+                    );
+                    if (!resp.ok) {
+                      const errBody = await resp.text();
+                      throw new Error(errBody || `HTTP ${resp.status}`);
+                    }
+                    const blob = await resp.blob();
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
