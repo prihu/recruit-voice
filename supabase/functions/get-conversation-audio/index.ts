@@ -32,6 +32,14 @@ Deno.serve(async (req) => {
     if (!response.ok) {
       const errText = await response.text();
       console.error(`[GET-AUDIO] ElevenLabs API error: ${response.status}`, errText);
+
+      if (response.status === 404) {
+        return new Response(
+          JSON.stringify({ error: 'recording_not_found', message: 'No audio recording found for this conversation.' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       return new Response(
         JSON.stringify({ error: `ElevenLabs API error: ${response.status}`, details: errText }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
