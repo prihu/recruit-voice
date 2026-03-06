@@ -1,46 +1,32 @@
 
 
-## Plan: Add Transcript Tool-Calls Extraction to refetch-screen-data
+## Yes — We Can Re-fetch from ElevenLabs API
 
-### Single change
+The `recover-stuck-screens` function already calls `GET https://api.elevenlabs.io/v1/convai/conversations/{session_id}` to fetch transcript, analysis, and metadata. The problem is it only targets screens with `status = 'in_progress'`. Screen `33d2b434` is already `completed` (with null answers).
 
-**Edit `supabase/functions/refetch-screen-data/index.ts`** — insert a new Source 1.5 block after line 142 (after `collected_tool_results` processing) and before line 144 (before `data_collection_results`).
+## Plan: Create a `refetch-screen-data` Edge Function
 
-The new block checks if `toolAnswers` is still empty, then iterates through `transcript` turns looking for `tool_calls` where the tool name contains "save" and "answer". It parses the JSON body to extract `question_text`, `candidate_answer`, and `answer_quality` — identical to the logic already in the webhook's Path B.5.
+A small edge function that takes a `screen_id`, fetches the conversation data from ElevenLabs, and re-runs the updated scoring logic (which now preserves save-answer data).
 
-```typescript
-// Source 1.5: Extract from transcript tool_calls (matches webhook fallback)
-if (Object.keys(toolAnswers).length === 0 && Array.isArray(transcript)) {
-  for (const turn of transcript) {
-    for (const call of (turn.tool_calls || [])) {
-      const toolName = call.tool_name || '';
-      if (toolName.includes('save') && toolName.includes('answer')) {
-        try {
-          const bodyStr = call.tool_details?.body || call.params_as_json || '';
-          const params = typeof bodyStr === 'string' ? JSON.parse(bodyStr) : bodyStr;
-          const questionText = params.question_text || '';
-          const answerText = params.candidate_answer || '';
-          const answerQuality = params.answer_quality || 'partial';
-          if (questionText) {
-            const key = `q_${questionText.toLowerCase()
-              .replace(/[^a-z0-9]+/g, '_')
-              .replace(/^_|_$/g, '')
-              .substring(0, 60)}`;
-            toolAnswers[key] = {
-              question_text: questionText,
-              candidate_answer: answerText,
-              answer_quality: answerQuality,
-              question_index: params.question_index,
-              source: 'transcript_tool_calls',
-            };
-          }
-        } catch (e) { /* skip unparseable */ }
-      }
-    }
-  }
-  console.log(`[REFETCH] Extracted ${Object.keys(toolAnswers).length} answers from transcript tool_calls`);
-}
-```
+### New file: `supabase/functions/refetch-screen-data/index.ts`
 
-No other files are changed. Deploy the updated function.
+1. Accept `{ screen_id }` in the request body
+2. Fetch the screen record (including `session_id`, `answers`, `role_id`)
+3. Call ElevenLabs API: `GET /v1/convai/conversations/{session_id}`
+4. Run the same processing as the updated webhook:
+   - Extract transcript, duration, recording_url, ai_summary
+   - Check for evaluation_criteria_results
+   - If no eval criteria, check existing `answers` from DB — but since answers are NULL for this screen, also check the ElevenLabs conversation's `collected_tool_results` (the save-answer tool calls are logged there by ElevenLabs)
+   - Score using `answer_quality` and set outcome
+   - Update the screen record
+
+### Edit: `src/pages/ScreenDetail.tsx`
+
+- Add a "Re-fetch from ElevenLabs" button (visible when `session_id` exists)
+- Calls `supabase.functions.invoke('refetch-screen-data', { body: { screen_id } })`
+- Refreshes screen data on success
+
+### Key insight: ElevenLabs stores tool call results
+
+The ElevenLabs conversation GET endpoint returns `collected_tool_results` which contains all the save-answer tool invocations with the structured answer data. Even though the DB answers were overwritten to NULL, the original data lives in ElevenLabs' API response. The refetch function will extract answers from there.
 
