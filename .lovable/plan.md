@@ -1,47 +1,46 @@
 
 
-## Problem
+## Step-by-Step Root Cause Analysis: Why Two Agents Exist
 
-When a new ElevenLabs agent is created (e.g., after updating a role), the Twilio phone number in ElevenLabs remains assigned to the **old** agent. The screenshot confirms: the phone number "Demo" is still pointing to the previous agent. The `demo-api-agent-manager` `create` action never reassigns the phone number to the newly created agent.
+### Timeline of Events
 
-## Root Cause
+1. **Original agent created (Sep 5, 2025)**: "Senior Product Manager - Demo Company" (`agent_3301k4b6e2ehf5yv342zr08pw05w`) was created when the role was first set up. The phone number was manually assigned to this agent in ElevenLabs at that time.
 
-The `create` action in both `demo-api-agent-manager` and `agent-manager` creates a new agent and saves the `voice_agent_id` to the database, but never calls the ElevenLabs API to update the phone number assignment. ElevenLabs phone numbers are bound to a specific agent, so the old agent keeps the phone number.
+2. **Role updated with company_name = "Unicommerce" (Mar 5, 2026)**: When you saved the role with the company name changed to "Unicommerce", the PUT handler in `demo-api-roles/index.ts` (line 224) fired the agent manager with `{ action: 'create', roleId }`. This **always sends `create`**, regardless of whether the role already has a `voice_agent_id`.
 
-## Fix
+3. **New agent created (Mar 5, 2026)**: The `create` case in `demo-api-agent-manager` does **not check** if `role.voice_agent_id` already exists. It unconditionally creates a brand new ElevenLabs agent. This produced "Senior Product Manager - Unicommerce" (`agent_4301kjz3qdtgenktm0866qy3wwgf`), and the DB was updated to point to this new agent.
 
-After creating a new agent, use the ElevenLabs API to update the phone number to point to the new agent:
+4. **Phone reassignment code was added but came AFTER the agent was already created**: The phone reassignment fix I added was deployed after the `agent_4301...` agent already existed. So it never ran for that agent. The phone number remained bound to the old `agent_3301...`.
 
+### Why My Previous Fixes Didn't Solve This
+
+**Fix 1 — Phone reassignment helper**: I added `reassignPhoneNumber()` to the `create` case. This is correct code, but it only runs on the **next** agent creation. Since the current agent (`agent_4301...`) was created **before** this code was deployed, it never benefited from it.
+
+**Fix 2 — Plan to use 'update' instead of 'create'**: This was approved as a plan but **never implemented in code**. Line 224 of `demo-api-roles/index.ts` still reads:
 ```
-PATCH https://api.elevenlabs.io/v1/convai/phone-numbers/{phone_number_id}
-Body: { "agent_id": "<new_agent_id>" }
+body: JSON.stringify({ action: 'create', roleId }),
 ```
+It should branch based on whether `role.voice_agent_id` exists.
 
-### Changes
+### The Two Concrete Problems
 
-**`supabase/functions/demo-api-agent-manager/index.ts`** — In the `create` case (after agent is created and `voice_agent_id` saved):
-- Fetch the organization's `twilio_config.agent_phone_number_id`
-- If a phone number ID exists, PATCH the ElevenLabs phone number to assign it to the new agent
-- Log success/failure but don't block (non-critical)
+1. **`demo-api-roles` PUT handler always sends `action: 'create'`** (line 224) — This creates a new ElevenLabs agent on every role save, orphaning the previous one.
 
-**`supabase/functions/agent-manager/index.ts`** — Same change in the `create` case:
-- After saving the new agent ID, fetch the org's `twilio_config.agent_phone_number_id`
-- PATCH the phone number assignment to the new agent
+2. **`demo-api-agent-manager` `create` case doesn't check for existing `voice_agent_id`** (line 441+) — Even if `create` is called, it should detect that the role already has an agent and either update it or skip creation.
 
-### Helper function (added to both files):
-```typescript
-async function reassignPhoneNumber(apiKey: string, phoneNumberId: string, agentId: string) {
-  const res = await fetch(`https://api.elevenlabs.io/v1/convai/phone-numbers/${phoneNumberId}`, {
-    method: 'PATCH',
-    headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ agent_id: agentId }),
-  });
-  if (!res.ok) console.error('Failed to reassign phone number:', await res.text());
-  else console.log(`Phone number ${phoneNumberId} reassigned to agent ${agentId}`);
-}
-```
+### Proposed Fix
+
+**File: `supabase/functions/demo-api-roles/index.ts`** (lines 218-228)
+- After the DB update returns the role, check `role.voice_agent_id`:
+  - If exists → send `{ action: 'update', agentId: role.voice_agent_id, updates: { roleId } }`
+  - If not → send `{ action: 'create', roleId }`
+
+**File: `supabase/functions/demo-api-agent-manager/index.ts`** (update case, ~line 620+)
+- After successful PATCH of the agent, also call `reassignPhoneNumber()` to ensure the phone number stays bound to the correct agent.
+
+**Manual cleanup needed**: Delete the orphaned old agent `agent_3301k4b6e2ehf5yv342zr08pw05w` ("Senior Product Manager - Demo Company") from ElevenLabs manually, since it's no longer referenced by the database.
 
 ### Files to change
-- `supabase/functions/demo-api-agent-manager/index.ts`
-- `supabase/functions/agent-manager/index.ts`
+- `supabase/functions/demo-api-roles/index.ts` — conditional action in PUT handler
+- `supabase/functions/demo-api-agent-manager/index.ts` — add phone reassignment to update case
 
