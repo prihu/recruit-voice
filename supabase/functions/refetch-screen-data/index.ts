@@ -178,6 +178,37 @@ Deno.serve(async (req) => {
     if (!response.ok) {
       const errText = await response.text();
       console.error(`[REFETCH] ElevenLabs API error: ${response.status}`, errText);
+
+      if (response.status === 404) {
+        const nowIso = new Date().toISOString();
+        const notFoundReason = 'Conversation not found in ElevenLabs';
+
+        const { error: markError } = await supabase
+          .from('screens')
+          .update({
+            status: 'incomplete',
+            outcome: 'incomplete',
+            updated_at: nowIso,
+            completed_at: screen.completed_at || nowIso,
+            reasons: [notFoundReason],
+          })
+          .eq('id', screen_id);
+
+        if (markError) {
+          console.error('[REFETCH] Failed to mark screen as not found:', markError);
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            not_found: true,
+            conversation_id: screen.session_id,
+            error: notFoundReason,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       return new Response(
         JSON.stringify({ error: `ElevenLabs API error: ${response.status}` }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

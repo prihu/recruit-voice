@@ -202,6 +202,15 @@ export default function ScreenDetail() {
         }
         return;
       }
+      if (data?.not_found) {
+        toast({
+          title: "Conversation Not Found",
+          description: "This conversation no longer exists in ElevenLabs. It may have been deleted or expired.",
+          variant: "destructive"
+        });
+        await fetchScreenData();
+        return;
+      }
       toast({
         title: "Data Recovered",
         description: `Recovered ${data.answers_recovered} answers, score: ${data.score}, outcome: ${data.outcome}`,
