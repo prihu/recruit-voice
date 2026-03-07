@@ -2,10 +2,16 @@ import { Phone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const footerLinks = {
-  Product: ['Features', 'Pricing', 'Integrations', 'API Docs'],
-  Company: ['About Us', 'Careers', 'Blog', 'Contact'],
-  Resources: ['Documentation', 'Help Center', 'Community', 'Status'],
-  Legal: ['Privacy Policy', 'Terms of Service', 'Security', 'GDPR'],
+  Product: [
+    { label: 'Features', href: '#features' },
+    { label: 'Why Us', href: '#whyus' },
+  ],
+  Platform: [
+    { label: 'Dashboard', href: '/dashboard' },
+    { label: 'Roles', href: '/roles' },
+    { label: 'Screens', href: '/screens' },
+    { label: 'Settings', href: '/settings' },
+  ],
 };
 
 export function LandingFooter() {
