@@ -9,8 +9,8 @@ import {
   BarChart3,
   Upload,
   Plus,
-  Home
-} from 'lucide-react';
+  Home } from
+'lucide-react';
 import { cn } from '@/lib/utils';
 import { BulkScreeningModal } from '@/components/BulkScreeningModal';
 import { Badge } from '@/components/ui/badge';
@@ -31,8 +31,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     const fetchActiveScreens = async () => {
       try {
         const screenings = await demoAPI.getScreenings();
-        const activeCount = screenings?.screens?.filter((s: any) => 
-          s.status === 'in_progress' || s.status === 'scheduled'
+        const activeCount = screenings?.screens?.filter((s: any) =>
+        s.status === 'in_progress' || s.status === 'scheduled'
         ).length || 0;
         setActiveScreensCount(activeCount);
       } catch (error) {
@@ -51,37 +51,37 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, []);
 
   const navItems = [
-    {
-      title: 'Home',
-      href: '/',
-      icon: Home,
-      badge: null
-    },
-    {
-      title: 'Roles',
-      href: '/roles',
-      icon: FileText,
-      badge: null
-    },
-    {
-      title: 'Import Candidates',
-      href: '/candidates/import',
-      icon: Upload,
-      badge: null
-    },
-    {
-      title: 'Screens',
-      href: '/screens',
-      icon: Phone,
-      badge: activeScreensCount > 0 ? `${activeScreensCount} active` : null
-    },
-    {
-      title: 'Settings',
-      href: '/settings',
-      icon: Settings,
-      badge: null
-    }
-  ];
+  {
+    title: 'Home',
+    href: '/',
+    icon: Home,
+    badge: null
+  },
+  {
+    title: 'Roles',
+    href: '/roles',
+    icon: FileText,
+    badge: null
+  },
+  {
+    title: 'Import Candidates',
+    href: '/candidates/import',
+    icon: Upload,
+    badge: null
+  },
+  {
+    title: 'Screens',
+    href: '/screens',
+    icon: Phone,
+    badge: activeScreensCount > 0 ? `${activeScreensCount} active` : null
+  },
+  {
+    title: 'Settings',
+    href: '/settings',
+    icon: Settings,
+    badge: null
+  }];
+
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return location.pathname === '/dashboard';
@@ -101,26 +101,26 @@ export function AppLayout({ children }: AppLayoutProps) {
           </Link>
 
           <nav className="flex items-center gap-1 ml-8 overflow-x-auto">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                to={item.href}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                  isActive(item.href)
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                )}
-              >
+            {navItems.map((item) =>
+            <Link
+              key={item.href}
+              to={item.href}
+              className={cn("flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors border-primary-hover",
+
+              isActive(item.href) ?
+              "bg-primary text-primary-foreground" :
+              "text-muted-foreground hover:text-foreground hover:bg-muted"
+              )}>
+              
                 <item.icon className="w-4 h-4" />
                 <span>{item.title}</span>
-                {item.badge && (
-                  <span className="ml-1 px-2 py-0.5 text-xs bg-accent text-accent-foreground rounded-full">
+                {item.badge &&
+              <span className="ml-1 px-2 py-0.5 text-xs bg-accent text-accent-foreground rounded-full">
                     {item.badge}
                   </span>
-                )}
+              }
               </Link>
-            ))}
+            )}
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
@@ -139,10 +139,10 @@ export function AppLayout({ children }: AppLayoutProps) {
       </main>
 
       {/* Bulk Screening Modal */}
-      <BulkScreeningModal 
-        open={showBulkScreening} 
-        onOpenChange={setShowBulkScreening} 
-      />
-    </div>
-  );
+      <BulkScreeningModal
+        open={showBulkScreening}
+        onOpenChange={setShowBulkScreening} />
+      
+    </div>);
+
 }
