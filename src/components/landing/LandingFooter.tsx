@@ -34,8 +34,8 @@ export function LandingFooter() {
               <h4 className="text-sm font-bold text-foreground mb-4">{title}</h4>
               <ul className="space-y-2">
                 {links.map(link => (
-                  <li key={link}>
-                    <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">{link}</a>
+                  <li key={link.label}>
+                    <a href={link.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">{link.label}</a>
                   </li>
                 ))}
               </ul>
