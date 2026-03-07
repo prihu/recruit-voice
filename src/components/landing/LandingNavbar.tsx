@@ -15,7 +15,6 @@ export function LandingNavbar() {
 
   const links = [
     { label: 'Features', href: '#features' },
-    { label: 'Use Cases', href: '#usecases' },
     { label: 'Why Us', href: '#whyus' },
   ];
 
@@ -43,9 +42,6 @@ export function LandingNavbar() {
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
-          <Link to="/dashboard" className="text-sm text-foreground font-medium px-4 py-2 border-2 border-border hover:shadow-xs transition-all">
-            Login
-          </Link>
           <Link to="/dashboard" className="text-sm bg-primary text-primary-foreground font-bold px-5 py-2 border-2 border-border shadow-xs hover:shadow-sm transition-all">
             Get Started
           </Link>

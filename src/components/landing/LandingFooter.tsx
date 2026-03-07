@@ -2,10 +2,16 @@ import { Phone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const footerLinks = {
-  Product: ['Features', 'Pricing', 'Integrations', 'API Docs'],
-  Company: ['About Us', 'Careers', 'Blog', 'Contact'],
-  Resources: ['Documentation', 'Help Center', 'Community', 'Status'],
-  Legal: ['Privacy Policy', 'Terms of Service', 'Security', 'GDPR'],
+  Product: [
+    { label: 'Features', href: '#features' },
+    { label: 'Why Us', href: '#whyus' },
+  ],
+  Platform: [
+    { label: 'Dashboard', href: '/dashboard' },
+    { label: 'Roles', href: '/roles' },
+    { label: 'Screens', href: '/screens' },
+    { label: 'Settings', href: '/settings' },
+  ],
 };
 
 export function LandingFooter() {
@@ -28,8 +34,8 @@ export function LandingFooter() {
               <h4 className="text-sm font-bold text-foreground mb-4">{title}</h4>
               <ul className="space-y-2">
                 {links.map(link => (
-                  <li key={link}>
-                    <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">{link}</a>
+                  <li key={link.label}>
+                    <a href={link.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">{link.label}</a>
                   </li>
                 ))}
               </ul>

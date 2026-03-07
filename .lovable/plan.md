@@ -1,30 +1,32 @@
 
 
-## Footer cleanup
+## Yes — We Can Re-fetch from ElevenLabs API
 
-**Current footer links** — ALL are placeholder `href="#"` pointing nowhere:
-- Product: Features, Pricing, Integrations, API Docs
-- Company: About Us, Careers, Blog, Contact
-- Resources: Documentation, Help Center, Community, Status
-- Legal: Privacy Policy, Terms of Service, Security, GDPR
-- Social: Twitter, LinkedIn, GitHub
+The `recover-stuck-screens` function already calls `GET https://api.elevenlabs.io/v1/convai/conversations/{session_id}` to fetch transcript, analysis, and metadata. The problem is it only targets screens with `status = 'in_progress'`. Screen `33d2b434` is already `completed` (with null answers).
 
-**Actual routes that exist in the app:**
-`/` (landing), `/dashboard`, `/roles`, `/candidates/import`, `/screens`, `/settings`
+## Plan: Create a `refetch-screen-data` Edge Function
 
-**Landing page sections with anchors:** `#features`, `#whyus`
+A small edge function that takes a `screen_id`, fetches the conversation data from ElevenLabs, and re-runs the updated scoring logic (which now preserves save-answer data).
 
-**Verdict:** None of the 16 footer links point to real pages. Pricing, API Docs, About Us, Careers, Blog, Contact, Documentation, Help Center, Community, Status, Privacy Policy, Terms of Service, Security, GDPR — none exist.
+### New file: `supabase/functions/refetch-screen-data/index.ts`
 
-### Plan
+1. Accept `{ screen_id }` in the request body
+2. Fetch the screen record (including `session_id`, `answers`, `role_id`)
+3. Call ElevenLabs API: `GET /v1/convai/conversations/{session_id}`
+4. Run the same processing as the updated webhook:
+   - Extract transcript, duration, recording_url, ai_summary
+   - Check for evaluation_criteria_results
+   - If no eval criteria, check existing `answers` from DB — but since answers are NULL for this screen, also check the ElevenLabs conversation's `collected_tool_results` (the save-answer tool calls are logged there by ElevenLabs)
+   - Score using `answer_quality` and set outcome
+   - Update the screen record
 
-**Replace `LandingFooter.tsx`** with a minimal footer containing only real links:
+### Edit: `src/pages/ScreenDetail.tsx`
 
-- **Product** section: Features (`#features`), Why Us (`#whyus`)
-- **Platform** section: Dashboard (`/dashboard`), Roles (`/roles`), Screens (`/screens`), Settings (`/settings`)
-- Remove Company, Resources, Legal sections entirely
-- Keep social links (Twitter, LinkedIn, GitHub) as placeholders — these are external and acceptable as `#`
-- Keep logo and copyright
+- Add a "Re-fetch from ElevenLabs" button (visible when `session_id` exists)
+- Calls `supabase.functions.invoke('refetch-screen-data', { body: { screen_id } })`
+- Refreshes screen data on success
 
-This reduces the footer from 4 fake sections (16 dead links) to 2 real sections (6 working links).
+### Key insight: ElevenLabs stores tool call results
+
+The ElevenLabs conversation GET endpoint returns `collected_tool_results` which contains all the save-answer tool invocations with the structured answer data. Even though the DB answers were overwritten to NULL, the original data lives in ElevenLabs' API response. The refetch function will extract answers from there.
 

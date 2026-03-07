@@ -8,7 +8,8 @@ import {
   Settings,
   BarChart3,
   Upload,
-  Plus
+  Plus,
+  Home
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BulkScreeningModal } from '@/components/BulkScreeningModal';
@@ -50,6 +51,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, []);
 
   const navItems = [
+    {
+      title: 'Home',
+      href: '/',
+      icon: Home,
+      badge: null
+    },
     {
       title: 'Roles',
       href: '/roles',

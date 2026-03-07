@@ -4,7 +4,7 @@ import { ArrowRight, FileText, Users, Brain, BarChart3 } from 'lucide-react';
 import { LandingNavbar } from '@/components/landing/LandingNavbar';
 import { HeroSection } from '@/components/landing/HeroSection';
 import { FeatureCard } from '@/components/landing/FeatureCard';
-import { UseCaseMarquee } from '@/components/landing/UseCaseMarquee';
+
 import { WhyChooseUs } from '@/components/landing/WhyChooseUs';
 import { LandingFooter } from '@/components/landing/LandingFooter';
 
@@ -83,7 +83,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <UseCaseMarquee />
+      
 
       <WhyChooseUs />
 
@@ -103,7 +103,7 @@ export default function LandingPage() {
               to="/dashboard"
               className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-bold px-10 py-4 border-2 border-border shadow-md hover:shadow-lg text-lg transition-all"
             >
-              Start Free Trial
+              Get Started
               <ArrowRight className="w-5 h-5" />
             </Link>
           </motion.div>
