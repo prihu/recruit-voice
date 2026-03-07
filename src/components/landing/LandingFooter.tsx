@@ -43,13 +43,8 @@ export function LandingFooter() {
           ))}
         </div>
 
-        <div className="border-t-2 border-border pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="border-t-2 border-border pt-8">
           <p className="text-xs text-muted-foreground">© 2026 AI Screener. All rights reserved.</p>
-          <div className="flex gap-6">
-            <a href="#" className="text-xs text-muted-foreground hover:text-foreground">Twitter</a>
-            <a href="#" className="text-xs text-muted-foreground hover:text-foreground">LinkedIn</a>
-            <a href="#" className="text-xs text-muted-foreground hover:text-foreground">GitHub</a>
-          </div>
         </div>
       </div>
     </footer>
